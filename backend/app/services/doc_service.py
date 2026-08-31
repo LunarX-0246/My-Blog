@@ -18,6 +18,7 @@ from app.errors import ApiError
 from app.models import Chunk, Document, IndexStatus, SourceType, Tag
 from app.rag import parser
 from app.schemas import DocDirNode, DocumentOut
+from app.services import index_service
 
 # 扩展名 -> file_format
 _ALLOWED = {".pdf": "pdf", ".md": "markdown", ".markdown": "markdown", ".txt": "txt"}
@@ -105,6 +106,7 @@ def upload_document(
         _save_file(doc.stored_name, data)  # 覆盖内容，存储名不变（不可更改）
         _assign_tags(db, doc, tag_ids)
         db.commit()
+        index_service.enqueue("document", doc.id)
         return _load_full(db, doc.id)
 
     stored_name = uuid.uuid4().hex + ext
@@ -124,6 +126,7 @@ def upload_document(
     _assign_tags(db, doc, tag_ids)
     db.add(doc)
     db.commit()
+    index_service.enqueue("document", doc.id)
     return _load_full(db, doc.id)
 
 
@@ -189,6 +192,7 @@ def update_document(
     # 目录路径会作为检索上下文的一部分，移动后需重新索引（FR-DOC-15）
     doc.idx_status = IndexStatus.pending
     db.commit()
+    index_service.enqueue("document", doc.id)
     return _load_full(db, doc.id)
 
 

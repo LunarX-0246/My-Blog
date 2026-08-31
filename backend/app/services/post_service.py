@@ -29,6 +29,7 @@ from app.models import (
 from app.rag import llm
 from app.rag.markdown import build_toc
 from app.schemas import PostDetail, PostListItem, PostWrite, TocItem
+from app.services import index_service
 from app.services.slug import slugify, unique_slug
 
 # 中文阅读速度约 300~400 字/分钟，取 300 做保守估算（FR-POST 阅读时长）
@@ -117,6 +118,9 @@ def update_post(db: Session, post: Post, data: PostWrite) -> Post:
         post.idx_status = IndexStatus.pending
     _associate_images(db, post)
     db.commit()
+    # 已发布文章编辑后立即重新索引（FR-POST-12）
+    if post.status == PostStatus.published:
+        index_service.enqueue("post", post.id)
     return _load_full(db, post.id)
 
 
@@ -190,8 +194,9 @@ def publish(db: Session, post: Post) -> Post:
         if post.published_at is None:
             post.published_at = _now()   # 首次发布记录时间
         post.updated_at = _now()
-        post.idx_status = IndexStatus.pending  # 触发索引（3a 的 worker 消费）
+        post.idx_status = IndexStatus.pending
         db.commit()
+        index_service.enqueue("post", post.id)  # 触发索引（3a worker 消费）
     return _load_full(db, post.id)
 
 
