@@ -1,0 +1,66 @@
+@import "tailwindcss";
+
+/* ═══════════════════════════════════════════════════════════
+   纯暗色主题（红线 E4：全站暗色，不写任何 dark: 变体）
+
+   色板直接定义为暗色，参考 Ting Lab：克制、以排版为主。
+   背景 #111315、正文 #F1F0EB（技术方案 §8.6）。
+
+   说明：create-next-app@15 安装的是 Tailwind v4（CSS-first，
+   无 tailwind.config.ts），因此色板用 @theme 在 CSS 里定义，
+   与文档 §3 提到的 tailwind.config.ts 等价，属主动偏离（见交付记录）。
+   ═══════════════════════════════════════════════════════════ */
+
+@theme {
+  --color-background: #111315;      /* 主背景 */
+  --color-foreground: #f1f0eb;      /* 主文字 */
+  --color-surface: #17191c;         /* 卡片 / 面板 */
+  --color-surface-hover: #1e2125;   /* 卡片悬停 */
+  --color-border: #26292e;          /* 边框 / 分隔线 */
+  --color-muted: #8a9199;           /* 次要文字 */
+  --color-faint: #5c636a;           /* 更弱文字 / 占位 */
+  --color-accent: #d4a373;          /* 强调色（暖琥珀，克制） */
+  --color-accent-foreground: #141210; /* 强调色上的文字 */
+  --color-code: #0c0e10;            /* 代码块背景 */
+  --color-code-foreground: #d6dce1; /* 代码块文字 */
+}
+
+/* 基础排版与暗色底 */
+body {
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue",
+    Arial, sans-serif;
+}
+
+/* 等宽：代码块、内联代码 */
+code,
+pre,
+kbd,
+samp {
+  font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+}
+
+/* 选中文本 */
+::selection {
+  background-color: var(--color-accent);
+  color: var(--color-accent-foreground);
+}
+
+/* 暗色下的滚动条（WebKit） */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-background);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 5px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-muted);
+}
