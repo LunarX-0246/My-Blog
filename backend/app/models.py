@@ -19,11 +19,13 @@ from sqlalchemy import (
     CHAR,
     BigInteger,
     Boolean,
+    Column,
     DateTime,
     Enum,
     ForeignKey,
     Integer,
     String,
+    Table,
     Text,
     UniqueConstraint,
     func,
@@ -63,6 +65,23 @@ source_type_enum = Enum(SourceType, name="source_type", native_enum=True)
 post_status_enum = Enum(PostStatus, name="post_status", native_enum=True)
 
 
+# 多对多关联表（无独立 ORM 模型，仅作 relationship 的 secondary）。
+# 与迁移里 post_tags / document_tags 的列保持一致；不在 create_all 中建表（用 Alembic）。
+post_tags = Table(
+    "post_tags",
+    Base.metadata,
+    Column("post_id", ForeignKey("posts.id", ondelete="CASCADE"), primary_key=True),
+    Column("tag_id", ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True),
+)
+
+document_tags = Table(
+    "document_tags",
+    Base.metadata,
+    Column("document_id", ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True),
+    Column("tag_id", ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True),
+)
+
+
 class Category(Base):
     __tablename__ = "categories"
 
@@ -87,10 +106,10 @@ class Tag(Base):
     )
 
     posts: Mapped[list["Post"]] = relationship(
-        secondary="post_tags", back_populates="tags"
+        secondary=post_tags, back_populates="tags"
     )
     documents: Mapped[list["Document"]] = relationship(
-        secondary="document_tags", back_populates="tags"
+        secondary=document_tags, back_populates="tags"
     )
 
 
@@ -133,7 +152,7 @@ class Post(Base):
 
     category: Mapped["Category | None"] = relationship(back_populates="posts")
     tags: Mapped[list["Tag"]] = relationship(
-        secondary="post_tags", back_populates="posts"
+        secondary=post_tags, back_populates="posts"
     )
 
 
@@ -162,7 +181,7 @@ class Document(Base):
     )
 
     tags: Mapped[list["Tag"]] = relationship(
-        secondary="document_tags", back_populates="documents"
+        secondary=document_tags, back_populates="documents"
     )
 
 
