@@ -81,8 +81,8 @@ def _split_paragraphs_keep_fences(text: str) -> list[str]:
     return [p for p in paragraphs if p.strip()]
 
 
-def _split_long(context_prefix: str, content: str, *, anchor=None, page_no=None) -> list[ChunkData]:
-    """超长块按段落二次切分（RAG-CHUNK-02），代码块/表格整块保留。"""
+def _split_long(content: str) -> list[str]:
+    """超长块按段落二次切分（RAG-CHUNK-02），代码块/表格整块保留。返回文本块列表。"""
     if len(content) <= settings.chunk_max_chars:
         return [content]
 
@@ -141,7 +141,7 @@ def chunk_markdown(md_text: str, *, root_ctx: str, description: str = "") -> lis
 
     def emit(prefix: str, content: str, *, anchor=None, page_no=None):
         nonlocal seq
-        for block in _split_long(prefix, content, anchor=anchor, page_no=page_no):
+        for block in _split_long(content):
             chunks.append(_make_chunk(seq, prefix, block, anchor=anchor, page_no=page_no))
             seq += 1
 
