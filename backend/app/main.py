@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
-from app.api import admin, auth, images, posts, taxonomy
+from app.api import admin, auth, docs, images, posts, taxonomy
 from app.errors import register_exception_handlers
 
 app = FastAPI(
@@ -27,6 +27,7 @@ app.include_router(posts.router)
 app.include_router(admin.router)
 app.include_router(taxonomy.router)
 app.include_router(images.router)
+app.include_router(docs.router)
 
 
 @app.get("/api/health", tags=["system"])

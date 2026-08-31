@@ -54,6 +54,50 @@ class TagWithCount(BaseModel):
     count: int
 
 
+# ── 知识库文档 ─────────────────────────────────────────
+
+class DocumentOut(BaseModel):
+    """文档元信息（列表 / 目录树共用）。"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    original_name: str
+    title: str
+    dir_path: str
+    description: str
+    file_format: str
+    file_size: int
+    page_count: int | None = None
+    view_count: int
+    idx_status: str
+    idx_error: str | None = None
+    tags: list[TagOut] = Field(default_factory=list)
+    uploaded_at: datetime
+
+
+class DocumentDetail(DocumentOut):
+    parsed_text: str
+    tag_ids: list[int] = Field(default_factory=list)
+
+
+class DocumentUpdate(BaseModel):
+    title: str | None = None
+    dir_path: str | None = None
+    description: str | None = None
+    tag_ids: list[int] | None = None
+
+
+class DocDirNode(BaseModel):
+    name: str
+    path: str
+    dirs: list["DocDirNode"] = Field(default_factory=list)
+    documents: list[DocumentOut] = Field(default_factory=list)
+
+
+DocDirNode.model_rebuild()
+
+
 # ── 文章 ───────────────────────────────────────────────
 
 class PostWrite(BaseModel):
