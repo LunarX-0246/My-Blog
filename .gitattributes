@@ -1,0 +1,25 @@
+# 统一换行符处理
+#
+# 背景：开发机是 Windows（CRLF），运行环境是 Linux 容器（LF）。
+# 若 shell 脚本、Dockerfile、compose 文件带着 CRLF 进入镜像，
+# 会出现 "no such file or directory" 之类极难定位的报错 ——
+# 报错信息完全不会提到换行符，但根因就是它。
+# 因此对这几类文件强制 LF。
+
+* text=auto
+
+*.sh        text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+Dockerfile  text eol=lf
+*.conf      text eol=lf
+
+# 二进制文件不做任何转换
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.pdf  binary
+*.woff binary
+*.woff2 binary
