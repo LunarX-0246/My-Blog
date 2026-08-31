@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import argparse
+import threading
 from collections import defaultdict
 
 from sqlalchemy import and_, or_, select
@@ -68,6 +69,56 @@ def _key(c: ScoredChunk) -> tuple[str, int, int]:
     return (c.src_type, c.src_id, c.seq)
 
 
+# ── BM25 索引缓存（M1）─────────────────────────────────────────
+# 每次提问都全量重建 BM25 会威胁「首字 3 秒」；进程内缓存，索引任务完成时失效重建。
+_bm25_lock = threading.Lock()
+_bm25_cache: tuple[BM25, list[ScoredChunk]] | None = None
+
+
+def _get_cached_bm25(db: Session) -> tuple[BM25, list[ScoredChunk]]:
+    global _bm25_cache
+    with _bm25_lock:
+        if _bm25_cache is None:
+            chunks = load_chunks(db)  # 全量块（无 flt）
+            _bm25_cache = (BM25([c.content for c in chunks]), chunks)
+        return _bm25_cache
+
+
+def invalidate_bm25() -> None:
+    """索引内容变化时失效缓存（由 index_service 调用）。"""
+    global _bm25_cache
+    with _bm25_lock:
+        _bm25_cache = None
+
+
+def _flt_src_ids(db: Session, flt: SearchFilter | None) -> set[tuple[str, int]] | None:
+    """返回 flt 里 tag_ids / dir_prefix 允许的 (src_type, src_id) 集合；该维度不过滤返回 None。"""
+    if not flt or (not flt.tag_ids and not flt.dir_prefix):
+        return None
+    src_ids: set[tuple[str, int]] | None = None
+    if flt.tag_ids:
+        post_ids = set(db.scalars(select(post_tags.c.post_id).where(post_tags.c.tag_id.in_(flt.tag_ids))).all())
+        doc_ids = set(db.scalars(select(document_tags.c.document_id).where(document_tags.c.tag_id.in_(flt.tag_ids))).all())
+        src_ids = {("post", i) for i in post_ids} | {("document", i) for i in doc_ids}
+    if flt.dir_prefix:
+        doc_ids = set(db.scalars(select(Document.id).where(Document.dir_path.like(f"{flt.dir_prefix}%"))).all())
+        ids = {("document", i) for i in doc_ids}
+        src_ids = src_ids & ids if src_ids is not None else ids
+    return src_ids
+
+
+def _match_flt(c: ScoredChunk, flt: SearchFilter | None, src_ids: set[tuple[str, int]] | None) -> bool:
+    if not flt:
+        return True
+    if flt.src_types and c.src_type not in flt.src_types:
+        return False
+    if flt.src_id is not None and c.src_id != flt.src_id:
+        return False
+    if src_ids is not None and (c.src_type, c.src_id) not in src_ids:
+        return False
+    return True
+
+
 def rrf_fusion(ranked_lists: list[list[ScoredChunk]], k: int, top_k: int) -> list[ScoredChunk]:
     """RRF 融合：score = Σ 1/(k + rank)，k 为常数。"""
     scores: dict[tuple, float] = defaultdict(float)
@@ -98,22 +149,28 @@ def retrieve(
     query_vec = embed_one(query)
     vec_results = get_store().search(db, query_vec, settings.retrieve_top_k, flt)
 
-    # 2. BM25 检索
-    chunks = load_chunks(db, flt)
-    bm25 = BM25([c.content for c in chunks])
-    bm25_results = [
-        ScoredChunk(
-            src_type=chunks[i].src_type,
-            src_id=chunks[i].src_id,
-            seq=chunks[i].seq,
-            content=chunks[i].content,
-            context_prefix=chunks[i].context_prefix,
-            page_no=chunks[i].page_no,
-            anchor=chunks[i].anchor,
-            score=score,
+    # 2. BM25 检索（缓存索引，M1；命中缓存时每次只做一次毫秒级 search）
+    bm25, all_chunks = _get_cached_bm25(db)
+    src_ids = _flt_src_ids(db, flt)
+    bm25_results: list[ScoredChunk] = []
+    for i, score in bm25.search(query, settings.retrieve_top_k * 3):
+        c = all_chunks[i]
+        if not _match_flt(c, flt, src_ids):
+            continue
+        bm25_results.append(
+            ScoredChunk(
+                src_type=c.src_type,
+                src_id=c.src_id,
+                seq=c.seq,
+                content=c.content,
+                context_prefix=c.context_prefix,
+                page_no=c.page_no,
+                anchor=c.anchor,
+                score=score,
+            )
         )
-        for i, score in bm25.search(query, settings.retrieve_top_k)
-    ]
+        if len(bm25_results) >= settings.retrieve_top_k:
+            break
 
     # 3. RRF 融合
     return rrf_fusion([vec_results, bm25_results], settings.rrf_k, top_k)

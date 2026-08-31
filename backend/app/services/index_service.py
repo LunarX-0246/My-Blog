@@ -16,6 +16,7 @@ from app.config import settings
 from app.db import SessionLocal
 from app.models import Chunk, Document, IndexStatus, IndexTask, Post, Setting, SourceType
 from app.rag import chunker, embedder, parser
+from app.rag.retriever import invalidate_bm25
 from app.rag.store.base import ChunkVec, get_store
 
 logger = logging.getLogger(__name__)
@@ -116,6 +117,8 @@ def _process_task(task_id: int, src_type: str, src_id: int, force: bool = False)
             db.commit()
             _set_source_idx_status(db, src_type, src_id, IndexStatus.failed, msg)
             logger.exception("index source %s:%s failed", src_type, src_id)
+    # 索引内容已变化（无论成功与否），失效 BM25 缓存（M1）
+    invalidate_bm25()
 
 
 def _chunk_source(db, src_type: str, src_id: int) -> list[chunker.ChunkData]:

@@ -28,6 +28,7 @@ from app.models import (
 )
 from app.rag import llm
 from app.rag.markdown import build_toc
+from app.rag.retriever import invalidate_bm25
 from app.rag.store import SearchFilter, get_store
 from app.schemas import PostDetail, PostListItem, PostWrite, TocItem
 from app.services import index_service
@@ -212,6 +213,7 @@ def unpublish(db: Session, post: Post) -> Post:
         )
         post.idx_status = IndexStatus.pending
         db.commit()
+        invalidate_bm25()
     return _load_full(db, post.id)
 
 
@@ -229,6 +231,7 @@ def delete_post(db: Session, post: Post) -> None:
     # 删除文章：FK 级联删除 post_tags 与 images 行
     db.delete(post)
     db.commit()
+    invalidate_bm25()
     # 删除磁盘上的配图文件
     images_dir = settings.images_dir
     for name in image_names:
