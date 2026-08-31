@@ -16,12 +16,20 @@ export default function Header() {
         <Link href="/" className="font-semibold">
           My Blog
         </Link>
-        <nav className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted">
+        <nav className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted">
           {navItems.map((i) => (
             <Link key={i.href} href={i.href} className="hover:text-foreground">
               {i.label}
             </Link>
           ))}
+          <form action="/search" className="ml-1">
+            <input
+              name="q"
+              type="search"
+              placeholder="搜索"
+              className="w-28 rounded-md border border-border bg-surface px-2 py-1 text-sm text-foreground placeholder:text-faint focus:border-accent focus:outline-none sm:w-36"
+            />
+          </form>
         </nav>
       </div>
     </header>

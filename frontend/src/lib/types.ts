@@ -171,3 +171,11 @@ export interface QaLogStats {
   avg_latency_ms: number;
   total_tokens: number;
 }
+
+export interface SearchResult {
+  type: "post" | "document";
+  title: string;
+  excerpt: string;
+  date: string | null;
+  url: string;
+}

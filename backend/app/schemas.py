@@ -207,6 +207,16 @@ class QaLogStats(BaseModel):
     total_tokens: int
 
 
+# ── 全站搜索（二期，FR-SEARCH-01~05）────────────────────────
+
+class SearchResult(BaseModel):
+    type: str  # "post" / "document"
+    title: str
+    excerpt: str  # 含 <mark> 高亮标记
+    date: datetime | None = None
+    url: str
+
+
 class PostNeighbor(BaseModel):
     title: str
     slug: str
