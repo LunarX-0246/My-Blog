@@ -36,7 +36,13 @@ export default function AdminIndex() {
         <Link href="/admin/posts" className="text-muted hover:text-foreground">
           文章管理 →
         </Link>
-        <span className="text-faint">知识库管理、索引管理（后续阶段加入）</span>
+        <Link href="/admin/docs" className="text-muted hover:text-foreground">
+          知识库管理 →
+        </Link>
+        <Link href="/admin/index" className="text-muted hover:text-foreground">
+          索引管理 →
+        </Link>
+        <span className="text-faint">站点设置（后续阶段加入）</span>
       </nav>
     </main>
   );

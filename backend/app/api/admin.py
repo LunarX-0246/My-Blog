@@ -61,12 +61,11 @@ def index_status(db: Session = Depends(get_db)) -> dict:
     }
 
 
-@router.post("/index/retry/{task_id}")
-def retry_index(task_id: int, db: Session = Depends(get_db)) -> dict[str, bool]:
-    task = db.get(IndexTask, task_id)
-    if not task:
-        raise ApiError(404, "not_found", "任务不存在")
-    index_service.enqueue(task.src_type.value, task.src_id)
+@router.post("/index/retry/{src_type}/{src_id}")
+def retry_index(src_type: str, src_id: int, db: Session = Depends(get_db)) -> dict[str, bool]:
+    if src_type not in ("post", "document"):
+        raise ApiError(400, "bad_request", "未知的内容类型")
+    index_service.enqueue(src_type, src_id)
     return {"ok": True}
 
 
