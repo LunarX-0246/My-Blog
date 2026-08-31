@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from sqlalchemy.orm import Session
 
 from app.rag import llm, retriever
-from app.rag.generator import SYSTEM_PROMPT, build_context
+from app.rag.generator import NO_RETRIEVAL_PROMPT, SYSTEM_PROMPT, build_context
 from app.rag.store.base import ScoredChunk, SearchFilter
 
 AGENT_PROMPT = (
@@ -68,9 +68,15 @@ def run_agent(
     )
     resp = llm.chat_with_tools(agent_messages, TOOLS)
 
-    # 模型未调用工具 → 未检索，直接回答
+    # 模型未调用工具 → 未检索，仍需在 R1 约束下作答（H1）
     if not resp.tool_calls:
-        return AgentResult(used_retrieval=False, direct_answer=resp.content or "")
+        final_messages = (
+            [{"role": "system", "content": NO_RETRIEVAL_PROMPT}]
+            + history
+            + [{"role": "user", "content": question}]
+        )
+        answer = llm.chat(final_messages)
+        return AgentResult(used_retrieval=False, direct_answer=answer)
 
     # 执行 search_kb 检索
     sources: list[ScoredChunk] = []
