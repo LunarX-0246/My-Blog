@@ -42,7 +42,9 @@ export default function AdminIndex() {
         <Link href="/admin/index" className="text-muted hover:text-foreground">
           索引管理 →
         </Link>
-        <span className="text-faint">站点设置（后续阶段加入）</span>
+        <Link href="/admin/settings" className="text-muted hover:text-foreground">
+          站点设置 →
+        </Link>
       </nav>
     </main>
   );

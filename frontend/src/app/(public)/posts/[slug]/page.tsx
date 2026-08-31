@@ -43,6 +43,12 @@ export default async function PostDetailPage({
             <span>阅读约 {post.read_minutes} 分钟</span>
           </div>
           <TagList tags={post.tags} />
+          <Link
+            href={`/ai?post=${post.slug}`}
+            className="inline-block text-sm text-accent hover:opacity-80"
+          >
+            只问这篇文章 →
+          </Link>
         </header>
 
         <div className="flex gap-8">

@@ -116,3 +116,17 @@ export interface DocDirNode {
   dirs: DocDirNode[];
   documents: DocumentOut[];
 }
+
+export interface AskSource {
+  n: number;
+  type: "post" | "document";
+  title: string;
+  url: string;
+  excerpt: string;
+  score: number;
+}
+
+export interface AskHistoryItem {
+  role: "user" | "assistant";
+  content: string;
+}

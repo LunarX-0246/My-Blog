@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import AskPanel from "@/components/ask/AskPanel";
 import { serverFetch } from "@/lib/server-api";
 import type { PostListResponse, TagWithCount } from "@/lib/types";
 
@@ -44,15 +45,20 @@ export default async function HomePage() {
         </section>
       )}
 
-      {/* AI 问答入口面板（占位，T3c 替换为完整交互组件） */}
+      {/* AI 问答入口面板（FR-HOME-04：可折叠完整交互组件） */}
       <section className="border-b border-border px-6 py-12">
         <div className="mx-auto max-w-4xl rounded-lg border border-border p-6">
-          <h2 className="text-lg font-semibold">AI 问答</h2>
-          <p className="mt-2 text-sm text-muted">
-            就站内内容提问，回答带可验证出处。问答能力将在后续阶段上线。
-          </p>
+          <details>
+            <summary className="flex cursor-pointer items-center justify-between text-lg font-semibold">
+              <span>AI 问答</span>
+              <span className="text-xs font-normal text-faint">点击展开</span>
+            </summary>
+            <div className="mt-4">
+              <AskPanel compact />
+            </div>
+          </details>
           <Link href="/ai" className="mt-4 inline-block text-sm text-accent">
-            前往问答页 →
+            前往独立问答页 →
           </Link>
         </div>
       </section>
