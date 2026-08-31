@@ -6,6 +6,7 @@ SSE 流式；事件顺序：status → sources（★ 必须先于 delta，A4）�
 from __future__ import annotations
 
 import json
+import logging
 import time
 
 from fastapi import APIRouter, Depends, Request
@@ -23,6 +24,8 @@ from app.schemas import AskRequest
 from app.services import ratelimit
 
 router = APIRouter(prefix="/api/ask", tags=["ask"])
+
+logger = logging.getLogger(__name__)
 
 
 def _sse(event: str, data: dict) -> str:
@@ -75,36 +78,63 @@ def ask(body: AskRequest, request: Request, db: Session = Depends(get_db)) -> St
     start = time.monotonic()
 
     def gen():
-        yield _sse("status", {"stage": "deciding"})
-        # 用独立会话，避免请求会话在流式期间被关闭
-        with SessionLocal() as s:
-            result = agent.run_agent(s, question, history, base_flt)
+        try:
+            yield _sse("status", {"stage": "deciding"})
+            # 用独立会话，避免请求会话在流式期间被关闭
+            with SessionLocal() as s:
+                # 迭代 run_agent（生成器）：可能先 yield 阶段标记，最后 yield AgentResult（M4）
+                result = None
+                for item in agent.run_agent(s, question, history, base_flt):
+                    if isinstance(item, str):
+                        yield _sse("status", {"stage": item})
+                    else:
+                        result = item
 
-            source_list = []
-            if result.used_retrieval:
-                for i, sc in enumerate(result.sources, 1):
-                    title, url, excerpt = _source_info(s, sc)
-                    source_list.append(
-                        {
-                            "n": i,
-                            "type": sc.src_type,
-                            "title": title,
-                            "url": url,
-                            "excerpt": excerpt,
-                            "score": sc.score,
-                        }
-                    )
+                source_list = []
+                if result.used_retrieval:
+                    for i, sc in enumerate(result.sources, 1):
+                        title, url, excerpt = _source_info(s, sc)
+                        source_list.append(
+                            {
+                                "n": i,
+                                "type": sc.src_type,
+                                "title": title,
+                                "url": url,
+                                "excerpt": excerpt,
+                                "score": sc.score,
+                            }
+                        )
 
-            if result.used_retrieval:
-                yield _sse("status", {"stage": "retrieving"})
                 # ★ sources 必须先于 delta 下发（A4）
-                yield _sse("sources", {"used_retrieval": True, "sources": source_list})
-                for delta in llm.stream_chat(result.final_messages):
+                if result.used_retrieval:
+                    yield _sse("sources", {"used_retrieval": True, "sources": source_list})
+                else:
+                    yield _sse("sources", {"used_retrieval": False, "sources": []})
+
+                # 开始生成前（M4）
+                yield _sse("status", {"stage": "generating"})
+
+                # 两条路径统一流式输出（H2），不再整段 yield；记录 token 用量（M3）
+                usage = [result.tool_usage]
+                t_first = time.monotonic()
+                first_logged = False
+                for delta in llm.stream_chat(result.final_messages, usage_out=usage):
+                    if not first_logged:
+                        logger.info("ask.timing first_token=%.0fms", (time.monotonic() - t_first) * 1000)
+                        first_logged = True
                     yield _sse("delta", {"text": delta})
-            else:
-                yield _sse("sources", {"used_retrieval": False, "sources": []})
-                yield _sse("delta", {"text": result.direct_answer or ""})
-            yield _sse("done", {"latency_ms": int((time.monotonic() - start) * 1000)})
+                final_usage = usage[1] if len(usage) > 1 else llm.Usage()
+                tokens = {
+                    "prompt": result.tool_usage.prompt_tokens + final_usage.prompt_tokens,
+                    "output": result.tool_usage.completion_tokens + final_usage.completion_tokens,
+                }
+                yield _sse(
+                    "done",
+                    {"latency_ms": int((time.monotonic() - start) * 1000), "tokens": tokens},
+                )
+        except Exception:  # noqa: BLE001 —— 流中出错也要给用户可理解提示（M2），详情写日志不下发
+            logger.exception("ask stream failed")
+            yield _sse("error", {"message": "抱歉，服务暂时不可用，请稍后再试"})
 
     return StreamingResponse(gen(), media_type="text/event-stream")
 

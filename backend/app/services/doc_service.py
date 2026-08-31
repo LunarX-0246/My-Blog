@@ -17,6 +17,7 @@ from app.config import settings
 from app.errors import ApiError
 from app.models import Chunk, Document, IndexStatus, SourceType, Tag
 from app.rag import parser
+from app.rag.retriever import invalidate_bm25
 from app.schemas import DocDirNode, DocumentOut
 from app.services import index_service
 
@@ -205,6 +206,7 @@ def delete_document(db: Session, doc: Document) -> None:
     # 删除文档：FK 级联删除 document_tags
     db.delete(doc)
     db.commit()
+    invalidate_bm25()
     # 删除原始文件
     (settings.uploads_dir / stored_name).unlink(missing_ok=True)
 

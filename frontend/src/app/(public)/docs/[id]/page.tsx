@@ -11,29 +11,47 @@ function formatSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-/** 文档详情页（FR-VIEW-16~19）：元信息 + 双视图。 */
+/** 文档详情页（FR-VIEW-16~19）：元信息 + 双视图。支持 ?page=N（PDF）与 #chunk-N（文本视图）。 */
 export default async function DocDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ page?: string }>;
 }) {
   const { id } = await params;
+  const { page } = await searchParams;
+  const initialPage = page ? Number(page) : undefined;
   const doc = await serverFetch<DocumentDetail>(`/api/docs/${id}`);
 
   const original =
     doc.file_format === "pdf" ? (
-      <PdfViewer url={`/api/docs/${doc.id}/raw`} />
+      <PdfViewer url={`/api/docs/${doc.id}/raw`} initialPage={initialPage} />
     ) : doc.file_format === "markdown" ? (
       <Markdown content={doc.parsed_text} />
     ) : (
       <pre className="whitespace-pre-wrap text-sm text-foreground">{doc.parsed_text}</pre>
     );
 
-  const textView = (
-    <pre className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
-      {doc.parsed_text}
-    </pre>
-  );
+  // 文本视图按块渲染，每块带 id="chunk-N" 锚点（FR-VIEW-19，H4）
+  const textView =
+    doc.chunks.length > 0 ? (
+      <div className="space-y-6">
+        {doc.chunks.map((c) => (
+          <div
+            key={c.seq}
+            id={`chunk-${c.seq}`}
+            className="scroll-mt-24 whitespace-pre-wrap text-sm leading-relaxed text-foreground"
+          >
+            {c.content}
+          </div>
+        ))}
+      </div>
+    ) : (
+      <pre className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+        {doc.parsed_text}
+      </pre>
+    );
 
   return (
     <main className="min-h-screen p-6">

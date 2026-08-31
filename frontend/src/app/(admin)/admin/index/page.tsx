@@ -17,6 +17,7 @@ interface IndexStatus {
   total_chunks: number;
   model: string;
   dim: number;
+  embedding_tokens: number;
   last_indexed_at: string | null;
 }
 
@@ -125,6 +126,7 @@ export default function AdminIndexPage() {
           <div className="flex flex-wrap gap-x-6 gap-y-1 rounded-lg border border-border p-4 text-sm text-muted">
             <span>块总数：<b className="text-foreground">{data.total_chunks}</b></span>
             <span>向量模型：<b className="text-foreground">{data.model}</b>（{data.dim} 维）</span>
+            <span>累计 embedding token：<b className="text-foreground">{data.embedding_tokens}</b></span>
             {data.last_indexed_at && (
               <span>最近索引：<b className="text-foreground">{new Date(data.last_indexed_at).toLocaleString("zh-CN")}</b></span>
             )}

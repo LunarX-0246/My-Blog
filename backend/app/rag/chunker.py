@@ -81,8 +81,8 @@ def _split_paragraphs_keep_fences(text: str) -> list[str]:
     return [p for p in paragraphs if p.strip()]
 
 
-def _split_long(context_prefix: str, content: str, *, anchor=None, page_no=None) -> list[ChunkData]:
-    """超长块按段落二次切分（RAG-CHUNK-02），代码块/表格整块保留。"""
+def _split_long(content: str) -> list[str]:
+    """超长块按段落二次切分（RAG-CHUNK-02），代码块/表格整块保留。返回文本块列表。"""
     if len(content) <= settings.chunk_max_chars:
         return [content]
 
@@ -141,7 +141,7 @@ def chunk_markdown(md_text: str, *, root_ctx: str, description: str = "") -> lis
 
     def emit(prefix: str, content: str, *, anchor=None, page_no=None):
         nonlocal seq
-        for block in _split_long(prefix, content, anchor=anchor, page_no=page_no):
+        for block in _split_long(content):
             chunks.append(_make_chunk(seq, prefix, block, anchor=anchor, page_no=page_no))
             seq += 1
 
@@ -157,14 +157,21 @@ def chunk_markdown(md_text: str, *, root_ctx: str, description: str = "") -> lis
         emit(prefix_root, lead)
 
     # 逐段切分：每段从标题行到下一个标题（或结尾）
+    seen_anchors: dict[str, int] = {}
     for idx, (chain, start, text) in enumerate(sections):
         end = sections[idx + 1][1] if idx + 1 < len(sections) else len(lines)
         content = "\n".join(lines[start:end]).strip()
         prefix = prefix_root
         for _lvl, htext in chain:
             prefix = f"{prefix} > {htext}"
-        # 锚点用当前标题的 slug（供引用跳转，RAG-CHUNK-07）
-        emit(prefix, content, anchor=slugify_heading(text))
+        # 锚点用当前标题的 slug（供引用跳转，RAG-CHUNK-07）；同名标题去重（L1，与前端一致）
+        anchor = slugify_heading(text)
+        if anchor in seen_anchors:
+            seen_anchors[anchor] += 1
+            anchor = f"{anchor}-{seen_anchors[anchor]}"
+        else:
+            seen_anchors[anchor] = 0
+        emit(prefix, content, anchor=anchor)
 
     return chunks
 

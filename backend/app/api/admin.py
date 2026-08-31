@@ -45,6 +45,8 @@ def index_status(db: Session = Depends(get_db)) -> dict:
     last = db.scalar(
         select(func.max(IndexTask.finished_at)).where(IndexTask.status == IndexStatus.indexed)
     )
+    token_row = db.get(Setting, "embedding_tokens")
+    embedding_tokens = int(token_row.value.get("total", 0)) if token_row and isinstance(token_row.value, dict) else 0
     return {
         "posts": [
             {"id": p.id, "title": p.title, "idx_status": p.idx_status.value, "idx_error": p.idx_error}
@@ -57,6 +59,7 @@ def index_status(db: Session = Depends(get_db)) -> dict:
         "total_chunks": stats.total_chunks,
         "model": settings.embedding_model,
         "dim": settings.embedding_dim,
+        "embedding_tokens": embedding_tokens,
         "last_indexed_at": last,
     }
 

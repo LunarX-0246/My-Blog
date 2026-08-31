@@ -98,9 +98,17 @@ export interface DocumentOut {
   uploaded_at: string;
 }
 
+export interface DocChunk {
+  seq: number;
+  content: string;
+  page_no: number | null;
+  anchor: string | null;
+}
+
 export interface DocumentDetail extends DocumentOut {
   parsed_text: string;
   tag_ids: number[];
+  chunks: DocChunk[];
 }
 
 export interface DocumentUpdate {
