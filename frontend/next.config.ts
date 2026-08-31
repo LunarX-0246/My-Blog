@@ -12,6 +12,12 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  // pdfjs-dist 的 Node 构建里 require("canvas")（原生模块），浏览器端用不到，
+  // 但 webpack 打包时会去解析。fallback 成空模块即可（标准解法）。
+  webpack: (config) => {
+    config.resolve.fallback = { ...config.resolve.fallback, canvas: false };
+    return config;
+  },
 };
 
 export default nextConfig;

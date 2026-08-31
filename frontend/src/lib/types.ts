@@ -81,3 +81,38 @@ export interface TagWithCount {
   slug: string;
   count: number;
 }
+
+export interface DocumentOut {
+  id: number;
+  original_name: string;
+  title: string;
+  dir_path: string;
+  description: string;
+  file_format: string;
+  file_size: number;
+  page_count: number | null;
+  view_count: number;
+  idx_status: string;
+  idx_error: string | null;
+  tags: TagOut[];
+  uploaded_at: string;
+}
+
+export interface DocumentDetail extends DocumentOut {
+  parsed_text: string;
+  tag_ids: number[];
+}
+
+export interface DocumentUpdate {
+  title?: string | null;
+  dir_path?: string | null;
+  description?: string | null;
+  tag_ids?: number[] | null;
+}
+
+export interface DocDirNode {
+  name: string;
+  path: string;
+  dirs: DocDirNode[];
+  documents: DocumentOut[];
+}
