@@ -46,7 +46,6 @@ TOOLS: list[dict] = [
 class AgentResult:
     used_retrieval: bool
     sources: list[ScoredChunk] = field(default_factory=list)
-    direct_answer: str | None = None
     final_messages: list[dict] = field(default_factory=list)
 
 
@@ -68,15 +67,14 @@ def run_agent(
     )
     resp = llm.chat_with_tools(agent_messages, TOOLS)
 
-    # 模型未调用工具 → 未检索，仍需在 R1 约束下作答（H1）
+    # 模型未调用工具 → 未检索，仍需在 R1 约束下作答（H1），走流式（H2）
     if not resp.tool_calls:
         final_messages = (
             [{"role": "system", "content": NO_RETRIEVAL_PROMPT}]
             + history
             + [{"role": "user", "content": question}]
         )
-        answer = llm.chat(final_messages)
-        return AgentResult(used_retrieval=False, direct_answer=answer)
+        return AgentResult(used_retrieval=False, final_messages=final_messages)
 
     # 执行 search_kb 检索
     sources: list[ScoredChunk] = []

@@ -99,11 +99,12 @@ def ask(body: AskRequest, request: Request, db: Session = Depends(get_db)) -> St
                 yield _sse("status", {"stage": "retrieving"})
                 # ★ sources 必须先于 delta 下发（A4）
                 yield _sse("sources", {"used_retrieval": True, "sources": source_list})
-                for delta in llm.stream_chat(result.final_messages):
-                    yield _sse("delta", {"text": delta})
             else:
                 yield _sse("sources", {"used_retrieval": False, "sources": []})
-                yield _sse("delta", {"text": result.direct_answer or ""})
+
+            # 两条路径统一流式输出（H2），不再整段 yield
+            for delta in llm.stream_chat(result.final_messages):
+                yield _sse("delta", {"text": delta})
             yield _sse("done", {"latency_ms": int((time.monotonic() - start) * 1000)})
 
     return StreamingResponse(gen(), media_type="text/event-stream")
