@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { clientFetch } from "@/lib/api";
 import type { CategoryOut, PostDetail, PostWrite, TagOut } from "@/lib/types";
+import MarkdownEditor from "./MarkdownEditor";
 import MetaForm from "./MetaForm";
 
 const emptyForm: PostWrite = {
@@ -141,12 +142,9 @@ export default function PostEditor({ postId }: { postId: number | null }) {
 
         <div className="space-y-1.5">
           <span className="text-sm text-muted">正文（Markdown）</span>
-          <textarea
-            className="w-full rounded-md border border-border bg-surface px-3 py-2 font-mono text-sm text-foreground focus:border-accent focus:outline-none"
-            rows={22}
+          <MarkdownEditor
             value={form.content_md}
-            onChange={(e) => setForm({ ...form, content_md: e.target.value })}
-            placeholder="用 Markdown 撰写正文…"
+            onChange={(v) => setForm({ ...form, content_md: v })}
           />
         </div>
       </div>
