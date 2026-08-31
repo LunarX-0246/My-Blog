@@ -158,6 +158,17 @@ class SummaryResponse(BaseModel):
     summary: str
 
 
+class AskRequest(BaseModel):
+    question: str
+    history: list[dict] = Field(default_factory=list)
+    scope: dict | None = None  # {"post_slug": "xxx"}，FR-ASK-14 限定单篇
+
+
+class SettingsUpdate(BaseModel):
+    presets: list[str] | None = None
+    limits: dict | None = None
+
+
 class PostNeighbor(BaseModel):
     title: str
     slug: str

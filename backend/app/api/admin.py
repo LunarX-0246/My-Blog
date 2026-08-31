@@ -12,9 +12,9 @@ from app.config import settings
 from app.db import get_db
 from app.deps import get_current_admin
 from app.errors import ApiError
-from app.models import Document, IndexStatus, IndexTask, Post, PostStatus
+from app.models import Document, IndexStatus, IndexTask, Post, PostStatus, Setting
 from app.rag.store import get_store
-from app.schemas import PostDetail, PostListItem
+from app.schemas import PostDetail, PostListItem, SettingsUpdate
 from app.services import index_service, post_service
 
 router = APIRouter(
@@ -73,3 +73,30 @@ def retry_index(src_type: str, src_id: int, db: Session = Depends(get_db)) -> di
 def rebuild_index(db: Session = Depends(get_db)) -> dict[str, int]:
     queued = index_service.rebuild_all()
     return {"queued": queued}
+
+
+@router.get("/settings")
+def get_settings(db: Session = Depends(get_db)) -> dict:
+    presets = db.get(Setting, "preset_questions")
+    limits = db.get(Setting, "ask_limits")
+    return {
+        "presets": presets.value if presets and isinstance(presets.value, list) else [],
+        "limits": limits.value if limits and isinstance(limits.value, dict) else None,
+    }
+
+
+@router.put("/settings")
+def update_settings(body: SettingsUpdate, db: Session = Depends(get_db)) -> dict[str, bool]:
+    def upsert(key: str, value: object) -> None:
+        row = db.get(Setting, key)
+        if row:
+            row.value = value
+        else:
+            db.add(Setting(key=key, value=value))
+
+    if body.presets is not None:
+        upsert("preset_questions", body.presets)
+    if body.limits is not None:
+        upsert("ask_limits", body.limits)
+    db.commit()
+    return {"ok": True}

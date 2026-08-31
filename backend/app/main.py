@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from app.api import admin, auth, docs, images, posts, taxonomy
+from app.api import admin, ask, auth, docs, images, posts, taxonomy
 from app.config import settings
 from app.db import SessionLocal
 from app.errors import register_exception_handlers
@@ -62,6 +62,7 @@ app.include_router(admin.router)
 app.include_router(taxonomy.router)
 app.include_router(images.router)
 app.include_router(docs.router)
+app.include_router(ask.router)
 
 
 @app.get("/api/health", tags=["system"])
