@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.deps import get_current_admin
-from app.schemas import PostDetail, PostListResponse, PostWrite
+from app.schemas import PostDetail, PostListResponse, PostWrite, SummaryResponse
 from app.services import post_service
 
 router = APIRouter(prefix="/api/posts", tags=["posts"])
@@ -65,3 +65,12 @@ def publish_post(post_id: int, db: Session = Depends(get_db)) -> PostDetail:
 def unpublish_post(post_id: int, db: Session = Depends(get_db)) -> PostDetail:
     post = post_service.get_by_id(db, post_id)
     return post_service.to_detail(post_service.unpublish(db, post))
+
+
+@router.post(
+    "/{post_id}/summary", response_model=SummaryResponse,
+    dependencies=[Depends(get_current_admin)],
+)
+def generate_summary(post_id: int, db: Session = Depends(get_db)) -> SummaryResponse:
+    post = post_service.get_by_id(db, post_id)
+    return SummaryResponse(summary=post_service.generate_summary(db, post))

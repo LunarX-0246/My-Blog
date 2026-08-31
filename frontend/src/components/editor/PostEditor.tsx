@@ -112,6 +112,33 @@ export default function PostEditor({ postId }: { postId: number | null }) {
     }
   }
 
+  async function generateSummary(): Promise<string | null> {
+    setError(null);
+    try {
+      if (postId == null) {
+        // 新建文章先保存为草稿，跳转到编辑页后再点一次即可生成
+        const p = await clientFetch<PostDetail>("/api/posts", {
+          method: "POST",
+          body: JSON.stringify(buildBody()),
+        });
+        router.replace(`/admin/posts/${p.id}/edit`);
+        return null;
+      }
+      // 先保存最新正文，保证摘要基于当前内容
+      await clientFetch<PostDetail>(`/api/posts/${postId}`, {
+        method: "PUT",
+        body: JSON.stringify(buildBody()),
+      });
+      const r = await clientFetch<{ summary: string }>(`/api/posts/${postId}/summary`, {
+        method: "POST",
+      });
+      return r.summary;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "摘要生成失败");
+      return null;
+    }
+  }
+
   async function publish() {
     setError(null);
     setSaving(true);
@@ -189,7 +216,13 @@ export default function PostEditor({ postId }: { postId: number | null }) {
 
         {error && <p className="text-sm text-red-400">{error}</p>}
 
-        <MetaForm value={form} categories={categories} tags={tags} onChange={updateForm} />
+        <MetaForm
+          value={form}
+          categories={categories}
+          tags={tags}
+          onChange={updateForm}
+          onGenerateSummary={generateSummary}
+        />
 
         <div className="space-y-1.5">
           <span className="text-sm text-muted">正文（Markdown）</span>

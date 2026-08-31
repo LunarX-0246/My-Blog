@@ -11,6 +11,8 @@ interface Props {
   categories: CategoryOut[];
   tags: TagOut[];
   onChange: (v: PostWrite) => void;
+  /** AI 生成摘要回调，返回摘要文本或 null（失败）。未提供则不显示按钮。 */
+  onGenerateSummary?: () => Promise<string | null>;
 }
 
 const inputCls =
@@ -18,7 +20,7 @@ const inputCls =
 
 const labelCls = "text-sm text-muted";
 
-export default function MetaForm({ value, categories, tags, onChange }: Props) {
+export default function MetaForm({ value, categories, tags, onChange, onGenerateSummary }: Props) {
   // 分类 / 标签可在编辑界面内直接新建（FR-POST-16），新建后追加到本地列表
   const [allCategories, setAllCategories] = useState<CategoryOut[]>(categories);
   const [allTags, setAllTags] = useState<TagOut[]>(tags);
@@ -27,6 +29,18 @@ export default function MetaForm({ value, categories, tags, onChange }: Props) {
   const [creatingTag, setCreatingTag] = useState(false);
   const [newTag, setNewTag] = useState("");
   const [busy, setBusy] = useState(false);
+  const [summarizing, setSummarizing] = useState(false);
+
+  async function handleSummary() {
+    if (!onGenerateSummary) return;
+    setSummarizing(true);
+    try {
+      const s = await onGenerateSummary();
+      if (s) onChange({ ...value, summary: s });
+    } finally {
+      setSummarizing(false);
+    }
+  }
 
   async function handleCreateCategory() {
     const name = newCategory.trim();
@@ -95,7 +109,19 @@ export default function MetaForm({ value, categories, tags, onChange }: Props) {
       </label>
 
       <label className="block space-y-1.5">
-        <span className={labelCls}>摘要</span>
+        <span className={`${labelCls} flex items-center`}>
+          摘要
+          {onGenerateSummary && (
+            <button
+              type="button"
+              onClick={handleSummary}
+              disabled={summarizing}
+              className="ml-2 text-xs text-accent hover:opacity-80 disabled:opacity-50"
+            >
+              {summarizing ? "生成中…" : "AI 生成"}
+            </button>
+          )}
+        </span>
         <textarea
           className={inputCls}
           rows={2}

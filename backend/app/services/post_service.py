@@ -25,6 +25,7 @@ from app.models import (
     SourceType,
     Tag,
 )
+from app.rag import llm
 from app.schemas import PostDetail, PostListItem, PostWrite
 from app.services.slug import slugify, unique_slug
 
@@ -211,3 +212,26 @@ def to_detail(post: Post) -> PostDetail:
         tag_ids=[t.id for t in post.tags],
         toc=[],
     )
+
+
+# 摘要生成：截断超长正文，避免 token 浪费
+_SUMMARY_MAX_CHARS = 6000
+_SUMMARY_PROMPT = (
+    "你是博主的内容助手。请根据下面这篇文章的正文，用一句话（不超过 60 字）"
+    "概括其核心内容。直接输出摘要，不要任何前缀、解释或引号。\n\n正文：\n{content}"
+)
+
+
+def generate_summary(db: Session, post: Post) -> str:
+    """AI 生成摘要（FR-POST-11）。失败转成面向用户的中文提示，不暴露堆栈。"""
+    if not post.content_md.strip():
+        raise ApiError(400, "empty_content", "正文为空，无法生成摘要")
+    prompt = _SUMMARY_PROMPT.format(content=post.content_md[:_SUMMARY_MAX_CHARS])
+    try:
+        summary = llm.chat([{"role": "user", "content": prompt}], max_tokens=128)
+    except Exception:
+        raise ApiError(502, "llm_error", "摘要生成失败，请稍后再试")
+    summary = summary.strip().strip('"“”')
+    if not summary:
+        raise ApiError(502, "llm_error", "摘要生成失败，请稍后再试")
+    return summary

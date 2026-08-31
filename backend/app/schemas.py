@@ -101,3 +101,7 @@ class PostDetail(PostListItem):
 class PostListResponse(BaseModel):
     items: list[PostListItem]
     total: int
+
+
+class SummaryResponse(BaseModel):
+    summary: str
