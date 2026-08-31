@@ -61,7 +61,12 @@ def _merge_scope(base_flt: SearchFilter | None, tool_scope: str) -> SearchFilter
 
 def run_agent(
     db: Session, question: str, history: list[dict], base_flt: SearchFilter | None
-) -> AgentResult:
+):
+    """按需检索（生成器）。
+
+    可能先 yield 阶段标记（如 "retrieving"，供 ask.py 在真实检索前发状态，M4），
+    最后 yield 一个 AgentResult。
+    """
     agent_messages = (
         [{"role": "system", "content": AGENT_PROMPT}]
         + history
@@ -76,7 +81,11 @@ def run_agent(
             + history
             + [{"role": "user", "content": question}]
         )
-        return AgentResult(used_retrieval=False, final_messages=final_messages, tool_usage=resp.usage)
+        yield AgentResult(used_retrieval=False, final_messages=final_messages, tool_usage=resp.usage)
+        return
+
+    # 真正开始检索前通知进度（M4）
+    yield "retrieving"
 
     # 执行 search_kb 检索
     sources: list[ScoredChunk] = []
@@ -98,6 +107,6 @@ def run_agent(
         + history
         + [{"role": "user", "content": question}]
     )
-    return AgentResult(
+    yield AgentResult(
         used_retrieval=True, sources=sources, final_messages=final_messages, tool_usage=resp.usage
     )

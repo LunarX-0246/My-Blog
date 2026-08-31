@@ -82,7 +82,13 @@ def ask(body: AskRequest, request: Request, db: Session = Depends(get_db)) -> St
             yield _sse("status", {"stage": "deciding"})
             # 用独立会话，避免请求会话在流式期间被关闭
             with SessionLocal() as s:
-                result = agent.run_agent(s, question, history, base_flt)
+                # 迭代 run_agent（生成器）：可能先 yield 阶段标记，最后 yield AgentResult（M4）
+                result = None
+                for item in agent.run_agent(s, question, history, base_flt):
+                    if isinstance(item, str):
+                        yield _sse("status", {"stage": item})
+                    else:
+                        result = item
 
                 source_list = []
                 if result.used_retrieval:
@@ -99,12 +105,14 @@ def ask(body: AskRequest, request: Request, db: Session = Depends(get_db)) -> St
                             }
                         )
 
+                # ★ sources 必须先于 delta 下发（A4）
                 if result.used_retrieval:
-                    yield _sse("status", {"stage": "retrieving"})
-                    # ★ sources 必须先于 delta 下发（A4）
                     yield _sse("sources", {"used_retrieval": True, "sources": source_list})
                 else:
                     yield _sse("sources", {"used_retrieval": False, "sources": []})
+
+                # 开始生成前（M4）
+                yield _sse("status", {"stage": "generating"})
 
                 # 两条路径统一流式输出（H2），不再整段 yield；记录 token 用量（M3）
                 usage = [result.tool_usage]
