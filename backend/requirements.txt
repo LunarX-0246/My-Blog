@@ -1,0 +1,37 @@
+# ═══════════════════════════════════════════════════════════════
+#  后端依赖清单
+#
+#  ⚠️ 本文件是 Docker 镜像构建的**唯一**依赖来源（技术方案 §10.1）。
+#     因此本机安装与镜像内安装必须一致：一律 pip install，不用 conda install。
+#     只列本项目真实用到的依赖，不夹带 torch / transformers / faiss 等重型包。
+# ═══════════════════════════════════════════════════════════════
+
+# ── Web 框架 ──
+fastapi>=0.115
+uvicorn[standard]>=0.30
+
+# ── 数据库 / ORM / 迁移 ──
+sqlalchemy>=2.0
+alembic>=1.13
+psycopg[binary]>=3.2
+pgvector>=0.3
+
+# ── 配置与校验 ──
+pydantic>=2.7
+pydantic-settings>=2.3
+
+# ── 认证（密码哈希 + 会话签名）──
+bcrypt>=4.1
+itsdangerous>=2.2
+
+# ── 文件上传（FastAPI 表单/文件解析依赖）──
+python-multipart>=0.0.9
+
+# ── 模型调用（DeepSeek 与千问均兼容 openai 协议）──
+openai>=1.40
+
+# ── RAG 资产 ──
+numpy>=1.26
+jieba>=0.42
+PyMuPDF>=1.24
+markdown-it-py>=3.0
