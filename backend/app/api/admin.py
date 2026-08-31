@@ -4,6 +4,8 @@
 """
 from __future__ import annotations
 
+from datetime import date, datetime, time, timezone
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -14,8 +16,14 @@ from app.deps import get_current_admin
 from app.errors import ApiError
 from app.models import Document, IndexStatus, IndexTask, Post, PostStatus, Setting
 from app.rag.store import get_store
-from app.schemas import PostDetail, PostListItem, SettingsUpdate
-from app.services import index_service, post_service
+from app.schemas import (
+    PostDetail,
+    PostListItem,
+    QaLogListResponse,
+    QaLogStats,
+    SettingsUpdate,
+)
+from app.services import index_service, post_service, qa_log_service
 
 router = APIRouter(
     prefix="/api/admin",
@@ -103,3 +111,32 @@ def update_settings(body: SettingsUpdate, db: Session = Depends(get_db)) -> dict
         upsert("ask_limits", body.limits)
     db.commit()
     return {"ok": True}
+
+
+@router.get("/qa-logs", response_model=QaLogListResponse)
+def list_qa_logs(
+    used_retrieval: bool | None = Query(None),
+    has_error: bool | None = Query(None),
+    date_from: date | None = Query(None),
+    date_to: date | None = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+) -> QaLogListResponse:
+    df = datetime.combine(date_from, time.min).replace(tzinfo=timezone.utc) if date_from else None
+    dt = datetime.combine(date_to, time.max).replace(tzinfo=timezone.utc) if date_to else None
+    items, total = qa_log_service.list_logs(
+        db,
+        used_retrieval=used_retrieval,
+        has_error=has_error,
+        date_from=df,
+        date_to=dt,
+        page=page,
+        page_size=page_size,
+    )
+    return QaLogListResponse(items=items, total=total)
+
+
+@router.get("/qa-logs/stats", response_model=QaLogStats)
+def qa_log_stats(db: Session = Depends(get_db)) -> QaLogStats:
+    return QaLogStats(**qa_log_service.stats(db))

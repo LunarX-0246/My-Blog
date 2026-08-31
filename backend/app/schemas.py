@@ -177,6 +177,36 @@ class SettingsUpdate(BaseModel):
     limits: dict | None = None
 
 
+# ── 问答日志（二期，FR-LOG-01~05）────────────────────────
+
+class QaLogOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    question: str
+    used_retrieval: bool
+    hit_chunks: list | None = None
+    answer: str | None = None
+    latency_ms: int | None = None
+    tokens_prompt: int | None = None
+    tokens_output: int | None = None
+    error: str | None = None
+    created_at: datetime
+
+
+class QaLogListResponse(BaseModel):
+    items: list[QaLogOut]
+    total: int
+
+
+class QaLogStats(BaseModel):
+    total_questions: int
+    retrieval_count: int
+    retrieval_rate: float
+    avg_latency_ms: float
+    total_tokens: int
+
+
 class PostNeighbor(BaseModel):
     title: str
     slug: str

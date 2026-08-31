@@ -138,3 +138,36 @@ export interface AskHistoryItem {
   role: "user" | "assistant";
   content: string;
 }
+
+export interface QaLogHitChunk {
+  src_type: string;
+  src_id: number;
+  seq: number;
+  score: number;
+}
+
+export interface QaLogOut {
+  id: number;
+  question: string;
+  used_retrieval: boolean;
+  hit_chunks: QaLogHitChunk[] | null;
+  answer: string | null;
+  latency_ms: number | null;
+  tokens_prompt: number | null;
+  tokens_output: number | null;
+  error: string | null;
+  created_at: string;
+}
+
+export interface QaLogListResponse {
+  items: QaLogOut[];
+  total: number;
+}
+
+export interface QaLogStats {
+  total_questions: number;
+  retrieval_count: number;
+  retrieval_rate: number;
+  avg_latency_ms: number;
+  total_tokens: number;
+}

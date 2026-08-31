@@ -45,6 +45,9 @@ export default function AdminIndex() {
         <Link href="/admin/settings" className="text-muted hover:text-foreground">
           站点设置 →
         </Link>
+        <Link href="/admin/logs" className="text-muted hover:text-foreground">
+          问答日志 →
+        </Link>
       </nav>
     </main>
   );

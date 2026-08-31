@@ -21,7 +21,7 @@ from app.models import Document, Post, PostStatus
 from app.rag import agent, llm, memory
 from app.rag.store.base import SearchFilter
 from app.schemas import AskRequest
-from app.services import ratelimit
+from app.services import qa_log_service, ratelimit
 
 router = APIRouter(prefix="/api/ask", tags=["ask"])
 
@@ -78,6 +78,13 @@ def ask(body: AskRequest, request: Request, db: Session = Depends(get_db)) -> St
     start = time.monotonic()
 
     def gen():
+        # 问答日志数据（只收业务字段，不落 IP/UA 等身份信息，N3）
+        answer_parts: list[str] = []
+        used_retrieval = False
+        hit_chunks: list = []
+        tokens_prompt = 0
+        tokens_output = 0
+        error_msg: str | None = None
         try:
             yield _sse("status", {"stage": "deciding"})
             # 用独立会话，避免请求会话在流式期间被关闭
@@ -89,6 +96,12 @@ def ask(body: AskRequest, request: Request, db: Session = Depends(get_db)) -> St
                         yield _sse("status", {"stage": item})
                     else:
                         result = item
+
+                used_retrieval = result.used_retrieval
+                hit_chunks = [
+                    {"src_type": sc.src_type, "src_id": sc.src_id, "seq": sc.seq, "score": sc.score}
+                    for sc in result.sources
+                ]
 
                 source_list = []
                 if result.used_retrieval:
@@ -122,19 +135,32 @@ def ask(body: AskRequest, request: Request, db: Session = Depends(get_db)) -> St
                     if not first_logged:
                         logger.info("ask.timing first_token=%.0fms", (time.monotonic() - t_first) * 1000)
                         first_logged = True
+                    answer_parts.append(delta)
                     yield _sse("delta", {"text": delta})
                 final_usage = usage[1] if len(usage) > 1 else llm.Usage()
-                tokens = {
-                    "prompt": result.tool_usage.prompt_tokens + final_usage.prompt_tokens,
-                    "output": result.tool_usage.completion_tokens + final_usage.completion_tokens,
-                }
+                tokens_prompt = result.tool_usage.prompt_tokens + final_usage.prompt_tokens
+                tokens_output = result.tool_usage.completion_tokens + final_usage.completion_tokens
+                tokens = {"prompt": tokens_prompt, "output": tokens_output}
                 yield _sse(
                     "done",
                     {"latency_ms": int((time.monotonic() - start) * 1000), "tokens": tokens},
                 )
-        except Exception:  # noqa: BLE001 —— 流中出错也要给用户可理解提示（M2），详情写日志不下发
+        except Exception as e:  # noqa: BLE001 —— 流中出错也要给用户可理解提示（M2），详情写日志不下发
+            error_msg = str(e)[:500]
             logger.exception("ask stream failed")
             yield _sse("error", {"message": "抱歉，服务暂时不可用，请稍后再试"})
+        finally:
+            # 无论成败 / 是否被客户端中断，都异步落日志（N4、T4-3）
+            qa_log_service.write_log_async(
+                question=question,
+                used_retrieval=used_retrieval,
+                hit_chunks=hit_chunks,
+                answer="".join(answer_parts),
+                latency_ms=int((time.monotonic() - start) * 1000),
+                tokens_prompt=tokens_prompt,
+                tokens_output=tokens_output,
+                error=error_msg,
+            )
 
     return StreamingResponse(gen(), media_type="text/event-stream")
 
