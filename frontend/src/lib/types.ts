@@ -74,3 +74,10 @@ export interface NeighborsResponse {
   prev: PostNeighbor | null;
   next: PostNeighbor | null;
 }
+
+export interface TagWithCount {
+  id: number;
+  name: string;
+  slug: string;
+  count: number;
+}

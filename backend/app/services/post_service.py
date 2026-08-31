@@ -146,6 +146,7 @@ def list_published(
     db: Session,
     category_slug: str | None = None,
     tag_slug: str | None = None,
+    featured: bool = False,
     page: int = 1,
     page_size: int = 20,
 ) -> tuple[list[Post], int]:
@@ -157,6 +158,9 @@ def list_published(
         .options(selectinload(Post.category), selectinload(Post.tags))
         .where(Post.status == PostStatus.published)
     )
+    if featured:
+        count_stmt = count_stmt.where(Post.is_featured.is_(True))
+        stmt = stmt.where(Post.is_featured.is_(True))
     if category_slug:
         count_stmt = count_stmt.join(Post.category).where(Category.slug == category_slug)
         stmt = stmt.join(Post.category).where(Category.slug == category_slug)

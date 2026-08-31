@@ -4,11 +4,11 @@
 """
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.errors import ApiError
-from app.models import Category, Tag
+from app.models import Category, Tag, document_tags, post_tags
 from app.services.slug import slugify, unique_slug
 
 
@@ -18,6 +18,29 @@ def list_categories(db: Session) -> list[Category]:
 
 def list_tags(db: Session) -> list[Tag]:
     return list(db.scalars(select(Tag).order_by(Tag.name)).all())
+
+
+def list_hot_tags(db: Session, limit: int = 10) -> list[tuple[Tag, int]]:
+    """热门标签：按关联内容数量（文章 + 文档）降序（FR-HOME-03）。"""
+    post_counts = select(post_tags.c.tag_id, func.count().label("c")).group_by(
+        post_tags.c.tag_id
+    )
+    doc_counts = select(document_tags.c.tag_id, func.count().label("c")).group_by(
+        document_tags.c.tag_id
+    )
+    unioned = post_counts.union_all(doc_counts).subquery()
+    grouped = (
+        select(unioned.c.tag_id, func.sum(unioned.c.c).label("total"))
+        .group_by(unioned.c.tag_id)
+        .subquery()
+    )
+    rows = db.execute(
+        select(Tag, grouped.c.total)
+        .join(grouped, Tag.id == grouped.c.tag_id)
+        .order_by(grouped.c.total.desc(), Tag.name)
+        .limit(limit)
+    ).all()
+    return [(tag, int(total)) for tag, total in rows]
 
 
 def create_category(db: Session, name: str) -> Category:

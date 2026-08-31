@@ -47,6 +47,13 @@ class TagCreate(BaseModel):
     name: str
 
 
+class TagWithCount(BaseModel):
+    id: int
+    name: str
+    slug: str
+    count: int
+
+
 # ── 文章 ───────────────────────────────────────────────
 
 class PostWrite(BaseModel):

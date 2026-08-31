@@ -26,11 +26,12 @@ router = APIRouter(prefix="/api/posts", tags=["posts"])
 def list_posts(
     category: str | None = None,
     tag: str | None = None,
+    featured: bool = Query(False),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
 ) -> PostListResponse:
-    items, total = post_service.list_published(db, category, tag, page, page_size)
+    items, total = post_service.list_published(db, category, tag, featured, page, page_size)
     return PostListResponse(items=items, total=total)
 
 
