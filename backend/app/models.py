@@ -239,6 +239,8 @@ class IndexTask(Base):
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     chunk_total: Mapped[int | None] = mapped_column(Integer, nullable=True)
     chunk_new: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # 全量重建标记（R1：崩溃恢复后仍按 force 执行，避免退化为增量导致新旧模型向量混杂）
+    force: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

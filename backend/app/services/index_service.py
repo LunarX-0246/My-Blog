@@ -45,7 +45,8 @@ def enqueue(src_type: str, src_id: int, *, force: bool = False) -> None:
     """创建索引任务并入队（供 API 层调用）。force=True 表示全量重建，忽略指纹。"""
     with SessionLocal() as db:
         task = IndexTask(
-            src_type=_to_enum(src_type), src_id=src_id, status=IndexStatus.queued
+            src_type=_to_enum(src_type), src_id=src_id, status=IndexStatus.queued,
+            force=force,
         )
         db.add(task)
         db.commit()
@@ -89,7 +90,7 @@ def _recover_pending() -> None:
         ).all()
         for t in rows:
             src_type = t.src_type.value
-            _queue.put_nowait((t.id, src_type, t.src_id, False))
+            _queue.put_nowait((t.id, src_type, t.src_id, t.force))
     logger.info("index worker recovered %d pending tasks", len(rows))
 
 
