@@ -157,14 +157,21 @@ def chunk_markdown(md_text: str, *, root_ctx: str, description: str = "") -> lis
         emit(prefix_root, lead)
 
     # 逐段切分：每段从标题行到下一个标题（或结尾）
+    seen_anchors: dict[str, int] = {}
     for idx, (chain, start, text) in enumerate(sections):
         end = sections[idx + 1][1] if idx + 1 < len(sections) else len(lines)
         content = "\n".join(lines[start:end]).strip()
         prefix = prefix_root
         for _lvl, htext in chain:
             prefix = f"{prefix} > {htext}"
-        # 锚点用当前标题的 slug（供引用跳转，RAG-CHUNK-07）
-        emit(prefix, content, anchor=slugify_heading(text))
+        # 锚点用当前标题的 slug（供引用跳转，RAG-CHUNK-07）；同名标题去重（L1，与前端一致）
+        anchor = slugify_heading(text)
+        if anchor in seen_anchors:
+            seen_anchors[anchor] += 1
+            anchor = f"{anchor}-{seen_anchors[anchor]}"
+        else:
+            seen_anchors[anchor] = 0
+        emit(prefix, content, anchor=anchor)
 
     return chunks
 
