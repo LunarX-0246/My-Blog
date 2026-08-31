@@ -6,6 +6,7 @@ SSE 流式；事件顺序：status → sources（★ 必须先于 delta，A4）�
 from __future__ import annotations
 
 import json
+import logging
 import time
 
 from fastapi import APIRouter, Depends, Request
@@ -23,6 +24,8 @@ from app.schemas import AskRequest
 from app.services import ratelimit
 
 router = APIRouter(prefix="/api/ask", tags=["ask"])
+
+logger = logging.getLogger(__name__)
 
 
 def _sse(event: str, data: dict) -> str:
@@ -75,37 +78,41 @@ def ask(body: AskRequest, request: Request, db: Session = Depends(get_db)) -> St
     start = time.monotonic()
 
     def gen():
-        yield _sse("status", {"stage": "deciding"})
-        # 用独立会话，避免请求会话在流式期间被关闭
-        with SessionLocal() as s:
-            result = agent.run_agent(s, question, history, base_flt)
+        try:
+            yield _sse("status", {"stage": "deciding"})
+            # 用独立会话，避免请求会话在流式期间被关闭
+            with SessionLocal() as s:
+                result = agent.run_agent(s, question, history, base_flt)
 
-            source_list = []
-            if result.used_retrieval:
-                for i, sc in enumerate(result.sources, 1):
-                    title, url, excerpt = _source_info(s, sc)
-                    source_list.append(
-                        {
-                            "n": i,
-                            "type": sc.src_type,
-                            "title": title,
-                            "url": url,
-                            "excerpt": excerpt,
-                            "score": sc.score,
-                        }
-                    )
+                source_list = []
+                if result.used_retrieval:
+                    for i, sc in enumerate(result.sources, 1):
+                        title, url, excerpt = _source_info(s, sc)
+                        source_list.append(
+                            {
+                                "n": i,
+                                "type": sc.src_type,
+                                "title": title,
+                                "url": url,
+                                "excerpt": excerpt,
+                                "score": sc.score,
+                            }
+                        )
 
-            if result.used_retrieval:
-                yield _sse("status", {"stage": "retrieving"})
-                # ★ sources 必须先于 delta 下发（A4）
-                yield _sse("sources", {"used_retrieval": True, "sources": source_list})
-            else:
-                yield _sse("sources", {"used_retrieval": False, "sources": []})
+                if result.used_retrieval:
+                    yield _sse("status", {"stage": "retrieving"})
+                    # ★ sources 必须先于 delta 下发（A4）
+                    yield _sse("sources", {"used_retrieval": True, "sources": source_list})
+                else:
+                    yield _sse("sources", {"used_retrieval": False, "sources": []})
 
-            # 两条路径统一流式输出（H2），不再整段 yield
-            for delta in llm.stream_chat(result.final_messages):
-                yield _sse("delta", {"text": delta})
-            yield _sse("done", {"latency_ms": int((time.monotonic() - start) * 1000)})
+                # 两条路径统一流式输出（H2），不再整段 yield
+                for delta in llm.stream_chat(result.final_messages):
+                    yield _sse("delta", {"text": delta})
+                yield _sse("done", {"latency_ms": int((time.monotonic() - start) * 1000)})
+        except Exception:  # noqa: BLE001 —— 流中出错也要给用户可理解提示（M2），详情写日志不下发
+            logger.exception("ask stream failed")
+            yield _sse("error", {"message": "抱歉，服务暂时不可用，请稍后再试"})
 
     return StreamingResponse(gen(), media_type="text/event-stream")
 
