@@ -3,13 +3,15 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 from fastapi.responses import FileResponse
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db import get_db
 from app.deps import get_current_admin
 from app.errors import ApiError
-from app.schemas import DocDirNode, DocumentDetail, DocumentOut, DocumentUpdate
+from app.models import Chunk, SourceType
+from app.schemas import DocChunk, DocDirNode, DocumentDetail, DocumentOut, DocumentUpdate
 from app.services import doc_service
 
 router = APIRouter(prefix="/api/docs", tags=["docs"])
@@ -33,10 +35,16 @@ def list_docs(
 @router.get("/{doc_id}", response_model=DocumentDetail)
 def get_doc(doc_id: int, db: Session = Depends(get_db)) -> DocumentDetail:
     doc = doc_service.get_document(db, doc_id)
+    chunks = db.scalars(
+        select(Chunk)
+        .where(Chunk.src_type == SourceType.document, Chunk.src_id == doc_id)
+        .order_by(Chunk.seq)
+    ).all()
     return DocumentDetail(
         **DocumentOut.model_validate(doc).model_dump(),
         parsed_text=doc.parsed_text,
         tag_ids=[t.id for t in doc.tags],
+        chunks=[DocChunk(seq=c.seq, content=c.content, page_no=c.page_no, anchor=c.anchor) for c in chunks],
     )
 
 

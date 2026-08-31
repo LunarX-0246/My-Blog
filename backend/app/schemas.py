@@ -76,9 +76,17 @@ class DocumentOut(BaseModel):
     uploaded_at: datetime
 
 
+class DocChunk(BaseModel):
+    seq: int
+    content: str
+    page_no: int | None = None
+    anchor: str | None = None
+
+
 class DocumentDetail(DocumentOut):
     parsed_text: str
     tag_ids: list[int] = Field(default_factory=list)
+    chunks: list[DocChunk] = Field(default_factory=list)
 
 
 class DocumentUpdate(BaseModel):
