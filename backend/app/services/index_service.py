@@ -56,6 +56,17 @@ def enqueue(src_type: str, src_id: int, *, force: bool = False) -> None:
         _loop.call_soon_threadsafe(_queue.put_nowait, (task_id, src_type, src_id, force))
 
 
+def _accumulate_embedding_tokens(db, total_tokens: int) -> None:
+    """累计索引环节的 embedding token 消耗到 settings（M3，成本可见）。不 commit，随主流程提交。"""
+    if total_tokens <= 0:
+        return
+    row = db.get(Setting, "embedding_tokens")
+    if row is None:
+        db.add(Setting(key="embedding_tokens", value={"total": total_tokens}))
+    else:
+        row.value = {"total": int(row.value.get("total", 0)) + total_tokens}
+
+
 def _set_source_idx_status(db, src_type: str, src_id: int, status: IndexStatus, error: str | None) -> None:
     if src_type == "post":
         post = db.get(Post, src_id)
@@ -164,9 +175,11 @@ def _index_source(db, src_type: str, src_id: int, *, force: bool = False) -> tup
     to_embed = new_chunks if force else [c for c in new_chunks if c.fingerprint not in existing]
     embeddings: dict[str, list[float]] = {}
     if to_embed:
-        vecs = embedder.embed_batch([c.embed_text for c in to_embed])
+        usage: list[int] = []
+        vecs = embedder.embed_batch([c.embed_text for c in to_embed], usage_out=usage)
         for c, v in zip(to_embed, vecs):
             embeddings[c.fingerprint] = v
+        _accumulate_embedding_tokens(db, sum(usage))
 
     chunk_vecs: list[ChunkVec] = []
     for c in new_chunks:

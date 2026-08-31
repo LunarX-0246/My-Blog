@@ -106,10 +106,19 @@ def ask(body: AskRequest, request: Request, db: Session = Depends(get_db)) -> St
                 else:
                     yield _sse("sources", {"used_retrieval": False, "sources": []})
 
-                # 两条路径统一流式输出（H2），不再整段 yield
-                for delta in llm.stream_chat(result.final_messages):
+                # 两条路径统一流式输出（H2），不再整段 yield；记录 token 用量（M3）
+                usage = [result.tool_usage]
+                for delta in llm.stream_chat(result.final_messages, usage_out=usage):
                     yield _sse("delta", {"text": delta})
-                yield _sse("done", {"latency_ms": int((time.monotonic() - start) * 1000)})
+                final_usage = usage[1] if len(usage) > 1 else llm.Usage()
+                tokens = {
+                    "prompt": result.tool_usage.prompt_tokens + final_usage.prompt_tokens,
+                    "output": result.tool_usage.completion_tokens + final_usage.completion_tokens,
+                }
+                yield _sse(
+                    "done",
+                    {"latency_ms": int((time.monotonic() - start) * 1000), "tokens": tokens},
+                )
         except Exception:  # noqa: BLE001 —— 流中出错也要给用户可理解提示（M2），详情写日志不下发
             logger.exception("ask stream failed")
             yield _sse("error", {"message": "抱歉，服务暂时不可用，请稍后再试"})

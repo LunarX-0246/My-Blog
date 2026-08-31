@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.rag import llm, retriever
 from app.rag.generator import NO_RETRIEVAL_PROMPT, SYSTEM_PROMPT, build_context
+from app.rag.llm import Usage
 from app.rag.store.base import ScoredChunk, SearchFilter
 
 AGENT_PROMPT = (
@@ -47,6 +48,7 @@ class AgentResult:
     used_retrieval: bool
     sources: list[ScoredChunk] = field(default_factory=list)
     final_messages: list[dict] = field(default_factory=list)
+    tool_usage: Usage = field(default_factory=Usage)
 
 
 def _merge_scope(base_flt: SearchFilter | None, tool_scope: str) -> SearchFilter:
@@ -74,7 +76,7 @@ def run_agent(
             + history
             + [{"role": "user", "content": question}]
         )
-        return AgentResult(used_retrieval=False, final_messages=final_messages)
+        return AgentResult(used_retrieval=False, final_messages=final_messages, tool_usage=resp.usage)
 
     # 执行 search_kb 检索
     sources: list[ScoredChunk] = []
@@ -96,4 +98,6 @@ def run_agent(
         + history
         + [{"role": "user", "content": question}]
     )
-    return AgentResult(used_retrieval=True, sources=sources, final_messages=final_messages)
+    return AgentResult(
+        used_retrieval=True, sources=sources, final_messages=final_messages, tool_usage=resp.usage
+    )

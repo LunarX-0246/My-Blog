@@ -70,12 +70,26 @@ class ToolCall:
 class ToolMessage:
     content: str | None
     tool_calls: list[ToolCall] = field(default_factory=list)
+    usage: "Usage" = field(default_factory=lambda: Usage())
+
+
+@dataclass
+class Usage:
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+
+
+def _usage(resp_usage) -> Usage:
+    return Usage(
+        prompt_tokens=getattr(resp_usage, "prompt_tokens", 0) or 0,
+        completion_tokens=getattr(resp_usage, "completion_tokens", 0) or 0,
+    )
 
 
 def chat_with_tools(
     messages: list[dict], tools: list[dict], *, temperature: float = 0.0
 ) -> ToolMessage:
-    """带工具的非流式调用，返回内容与 tool_calls（用于按需检索判定）。"""
+    """带工具的非流式调用，返回内容、tool_calls 与 usage（用于按需检索判定与 token 统计）。"""
     last: Exception | None = None
     for model in _models():
         try:
@@ -85,21 +99,30 @@ def chat_with_tools(
                 ToolCall(id=tc.id, name=tc.function.name, arguments=tc.function.arguments)
                 for tc in (msg.tool_calls or [])
             ]
-            return ToolMessage(content=msg.content, tool_calls=calls)
+            return ToolMessage(content=msg.content, tool_calls=calls, usage=_usage(resp.usage))
         except Exception as e:  # noqa: BLE001
             last = e
     raise last if last else RuntimeError("LLM 调用失败")
 
 
 def stream_chat(
-    messages: list[dict], *, temperature: float = 0.3, max_tokens: int = 1024
+    messages: list[dict],
+    *,
+    temperature: float = 0.3,
+    max_tokens: int = 1024,
+    usage_out: list[Usage] | None = None,
 ) -> Iterator[str]:
-    """流式对话，逐 token 产出文本。"""
+    """流式对话，逐 token 产出文本；usage 追加到 usage_out（开启 include_usage）。"""
     last: Exception | None = None
     for model in _models():
         try:
-            stream = _create(model, messages, stream=True, temperature=temperature, max_tokens=max_tokens)
+            stream = _create(
+                model, messages, stream=True, temperature=temperature,
+                max_tokens=max_tokens, stream_options={"include_usage": True},
+            )
             for chunk in stream:
+                if chunk.usage and usage_out is not None:
+                    usage_out.append(_usage(chunk.usage))
                 delta = chunk.choices[0].delta if chunk.choices else None
                 if delta and delta.content:
                     yield delta.content

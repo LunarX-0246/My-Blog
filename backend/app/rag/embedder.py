@@ -25,30 +25,37 @@ def _get_client() -> OpenAI:
     return _client
 
 
-def _embed_with_retry(client: OpenAI, batch: list[str]) -> list[list[float]]:
+def _embed_with_retry(client: OpenAI, batch: list[str]) -> tuple[list[list[float]], int]:
     last_exc: Exception | None = None
     for attempt in range(3):
         try:
             resp = client.embeddings.create(model=settings.embedding_model, input=batch)
             vectors = [item.embedding for item in resp.data]
+            total_tokens = getattr(resp.usage, "total_tokens", 0) or 0
             # L2 归一化
             arr = np.asarray(vectors, dtype=np.float32)
             norms = np.linalg.norm(arr, axis=1, keepdims=True)
             norms[norms == 0] = 1.0
             arr = arr / norms
-            return [row.tolist() for row in arr]
+            return [row.tolist() for row in arr], total_tokens
         except Exception as e:  # noqa: BLE001 —— 网络/限流错误统一重试
             last_exc = e
             time.sleep(2 ** attempt)  # 1s / 2s / 4s 退避
     raise last_exc if last_exc else RuntimeError("embedding failed")
 
 
-def embed_batch(texts: list[str]) -> list[list[float]]:
-    """批量向量化，返回 L2 归一化后的向量列表（与输入顺序一致）。"""
+def embed_batch(texts: list[str], *, usage_out: list[int] | None = None) -> list[list[float]]:
+    """批量向量化，返回 L2 归一化后的向量列表（与输入顺序一致）。
+
+    usage_out 传入时追加每批的 total_tokens，供索引环节累计消耗（M3）。
+    """
     result: list[list[float]] = []
     for i in range(0, len(texts), settings.embed_batch_size):
         batch = texts[i : i + settings.embed_batch_size]
-        result.extend(_embed_with_retry(_get_client(), batch))
+        vectors, total_tokens = _embed_with_retry(_get_client(), batch)
+        if usage_out is not None:
+            usage_out.append(total_tokens)
+        result.extend(vectors)
     return result
 
 
