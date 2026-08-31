@@ -28,6 +28,7 @@ from app.models import (
 )
 from app.rag import llm
 from app.rag.markdown import build_toc
+from app.rag.store import SearchFilter, get_store
 from app.schemas import PostDetail, PostListItem, PostWrite, TocItem
 from app.services import index_service
 from app.services.slug import slugify, unique_slug
@@ -243,6 +244,38 @@ def to_detail(post: Post) -> PostDetail:
         tag_ids=[t.id for t in post.tags],
         toc=[TocItem(level=h.level, text=h.text, anchor=h.anchor) for h in build_toc(post.content_md)],
     )
+
+
+def get_related(db: Session, post: Post, limit: int = 3) -> list[Post]:
+    """相关文章推荐：复用向量索引计算内容相似度（FR-VIEW-13）。"""
+    chunk = db.scalar(
+        select(Chunk)
+        .where(Chunk.src_type == SourceType.post, Chunk.src_id == post.id)
+        .order_by(Chunk.seq)
+        .limit(1)
+    )
+    if not chunk or chunk.embedding is None:
+        return []
+    results = get_store().search(
+        db, list(chunk.embedding), top_k=20, flt=SearchFilter(src_types=["post"])
+    )
+    post_ids: list[int] = []
+    for r in results:
+        if r.src_id == post.id:
+            continue
+        if r.src_id not in post_ids:
+            post_ids.append(r.src_id)
+    if not post_ids:
+        return []
+    related = list(
+        db.scalars(
+            select(Post)
+            .options(selectinload(Post.category), selectinload(Post.tags))
+            .where(Post.id.in_(post_ids[:limit]), Post.status == PostStatus.published)
+        ).all()
+    )
+    order = {pid: i for i, pid in enumerate(post_ids[:limit])}
+    return sorted(related, key=lambda p: order.get(p.id, 999))
 
 
 def get_neighbors(db: Session, post: Post) -> tuple[Post | None, Post | None]:

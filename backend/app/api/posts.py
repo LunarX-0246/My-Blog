@@ -12,6 +12,7 @@ from app.deps import get_current_admin
 from app.schemas import (
     NeighborsResponse,
     PostDetail,
+    PostListItem,
     PostListResponse,
     PostNeighbor,
     PostWrite,
@@ -48,6 +49,12 @@ def get_neighbors(slug: str, db: Session = Depends(get_db)) -> NeighborsResponse
         prev=PostNeighbor(title=prev_post.title, slug=prev_post.slug) if prev_post else None,
         next=PostNeighbor(title=next_post.title, slug=next_post.slug) if next_post else None,
     )
+
+
+@router.get("/{slug}/related", response_model=list[PostListItem])
+def get_related_posts(slug: str, db: Session = Depends(get_db)) -> list[PostListItem]:
+    post = post_service.get_published_by_slug(db, slug)
+    return post_service.get_related(db, post)
 
 
 @router.post(

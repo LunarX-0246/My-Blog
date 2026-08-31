@@ -5,7 +5,7 @@ import PrevNext from "@/components/post/PrevNext";
 import TagList from "@/components/post/TagList";
 import Toc from "@/components/post/Toc";
 import { serverFetch } from "@/lib/server-api";
-import type { NeighborsResponse, PostDetail } from "@/lib/types";
+import type { NeighborsResponse, PostDetail, PostListItem } from "@/lib/types";
 
 /** 文章详情页（FR-VIEW-08~12）。 */
 export default async function PostDetailPage({
@@ -14,9 +14,10 @@ export default async function PostDetailPage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const [post, neighbors] = await Promise.all([
+  const [post, neighbors, related] = await Promise.all([
     serverFetch<PostDetail>(`/api/posts/${slug}`),
     serverFetch<NeighborsResponse>(`/api/posts/${slug}/neighbors`),
+    serverFetch<PostListItem[]>(`/api/posts/${slug}/related`),
   ]);
 
   return (
@@ -61,6 +62,22 @@ export default async function PostDetailPage({
             </div>
           </aside>
         </div>
+
+        {related.length > 0 && (
+          <section className="mt-10 border-t border-border pt-6">
+            <h2 className="mb-4 text-lg font-semibold">相关文章</h2>
+            <ul className="space-y-3">
+              {related.map((p) => (
+                <li key={p.id}>
+                  <Link href={`/posts/${p.slug}`} className="font-medium hover:text-accent">
+                    {p.title}
+                  </Link>
+                  {p.summary && <p className="mt-1 text-sm text-muted">{p.summary}</p>}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         <PrevNext prev={neighbors.prev} next={neighbors.next} />
       </div>

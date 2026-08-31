@@ -10,12 +10,12 @@ export default async function DocsPage() {
 
   return (
     <main className="min-h-screen p-6">
-      <div className="mx-auto flex max-w-5xl gap-8">
-        <aside className="w-64 shrink-0">
+      <div className="mx-auto flex max-w-5xl flex-col gap-6 md:flex-row md:gap-8">
+        <aside className="w-full shrink-0 md:w-64">
           <h1 className="mb-4 text-lg font-semibold">知识库</h1>
           <DirTree node={tree} />
         </aside>
-        <div className="min-w-0 flex-1 border-l border-border pl-8">
+        <div className="min-w-0 flex-1 border-border md:border-l md:pl-8">
           <h2 className="mb-4 text-sm text-faint">根目录文档</h2>
           {tree.documents.length === 0 ? (
             <p className="text-sm text-muted">从左侧目录树选择文档查看。</p>

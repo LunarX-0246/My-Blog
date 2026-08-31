@@ -12,11 +12,11 @@ const navItems = [
 export default function Header() {
   return (
     <header className="border-b border-border">
-      <div className="mx-auto flex max-w-4xl items-center justify-between px-6 py-4">
+      <div className="mx-auto flex max-w-4xl flex-wrap items-center justify-between gap-2 px-6 py-4">
         <Link href="/" className="font-semibold">
           My Blog
         </Link>
-        <nav className="flex gap-5 text-sm text-muted">
+        <nav className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted">
           {navItems.map((i) => (
             <Link key={i.href} href={i.href} className="hover:text-foreground">
               {i.label}
