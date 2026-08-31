@@ -71,6 +71,7 @@ class Settings(BaseSettings):
     context_top_k: int = 5                 # 最终送入 Prompt 的块数
     rrf_k: int = 60                        # RRF 融合常数
     memory_keep_full_turns: int = 2        # 多轮对话中完整保留的最近轮数
+    agent_max_rounds: int = 5              # 多工具循环的最大轮数（防止工具死循环）
 
     # ── 限流与成本控制（FR-ASK-19 ~ 22）──────────────────
     ask_rate_limit_per_hour: int = 10      # 单 IP 每小时次数

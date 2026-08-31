@@ -11,15 +11,25 @@ interface Message {
   content: string;
   sources: AskSource[];
   usedRetrieval: boolean | null;
+  metadataTools: string[];
 }
 
 const STORAGE_KEY = "blog_ask_history";
 const MAX_CHARS = 1000;
 
 const stageText: Record<string, string> = {
-  deciding: "正在判断是否需要检索知识库…",
+  deciding: "正在判断…",
   retrieving: "正在检索知识库…",
+  listing: "正在查看文章清单…",
+  outlining: "正在查看文章目录…",
+  sectioning: "正在查看文章章节…",
   generating: "正在生成…",
+};
+
+const metadataToolText: Record<string, string> = {
+  list_posts: "文章清单",
+  get_post_outline: "文章目录",
+  get_post_section: "文章章节",
 };
 
 /** 渲染引用角标 [n] 为可点击链接（FR-ASK-12）。 */
@@ -89,6 +99,7 @@ export default function AskPanel({
             content: i.content,
             sources: [],
             usedRetrieval: null,
+            metadataTools: [],
           })),
         );
       } catch {
@@ -114,14 +125,14 @@ export default function AskPanel({
     if (!question || loading) return;
     setInput("");
     const history: AskHistoryItem[] = messages.map((m) => ({ role: m.role, content: m.content }));
-    const next = [...messages, { role: "user" as const, content: question, sources: [], usedRetrieval: null }];
+    const next = [...messages, { role: "user" as const, content: question, sources: [], usedRetrieval: null, metadataTools: [] }];
     setMessages(next);
     setLoading(true);
     setStage("deciding");
 
     setMessages((prev) => [
       ...prev,
-      { role: "assistant", content: "", sources: [], usedRetrieval: null },
+      { role: "assistant", content: "", sources: [], usedRetrieval: null, metadataTools: [] },
     ]);
 
     function patchAssistant(patch: (m: Message) => Message) {
@@ -139,7 +150,12 @@ export default function AskPanel({
         {
           onStatus: (s) => setStage(s),
           onSources: (d) =>
-            patchAssistant((m) => ({ ...m, usedRetrieval: d.used_retrieval, sources: d.sources })),
+            patchAssistant((m) => ({
+              ...m,
+              usedRetrieval: d.used_retrieval,
+              sources: d.sources,
+              metadataTools: d.metadata_tools ?? [],
+            })),
           onDelta: (t) => patchAssistant((m) => ({ ...m, content: m.content + t })),
           onError: (msg) =>
             patchAssistant((m) => ({ ...m, content: m.content || msg, usedRetrieval: false })),
@@ -202,7 +218,17 @@ export default function AskPanel({
             {m.role === "assistant" && m.content && (
               <div className="mt-1 flex items-center justify-between">
                 <span className="text-xs text-faint">
-                  {m.usedRetrieval === true ? "已检索知识库" : m.usedRetrieval === false ? "本次未检索知识库" : ""}
+                  {[
+                    m.usedRetrieval ? "已检索知识库" : "",
+                    m.metadataTools.length > 0
+                      ? `查看了${m.metadataTools.map((t) => metadataToolText[t] ?? t).join("、")}`
+                      : "",
+                    !m.usedRetrieval && m.metadataTools.length === 0 && m.usedRetrieval === false
+                      ? "本次未检索知识库"
+                      : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
                 </span>
                 <CopyButton text={m.content} />
               </div>

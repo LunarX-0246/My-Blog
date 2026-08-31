@@ -5,6 +5,7 @@ import type { AskSource } from "./types";
 export interface SourcesEvent {
   used_retrieval: boolean;
   sources: AskSource[];
+  metadata_tools?: string[];
 }
 
 export interface AskHandlers {

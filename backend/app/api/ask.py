@@ -119,10 +119,18 @@ def ask(body: AskRequest, request: Request, db: Session = Depends(get_db)) -> St
                         )
 
                 # ★ sources 必须先于 delta 下发（A4）
+                # metadata_tools：非 search_kb 的工具（N2：元数据工具不算「检索了知识库」）
+                metadata_tools = [t for t in result.used_tools if t != "search_kb"]
                 if result.used_retrieval:
-                    yield _sse("sources", {"used_retrieval": True, "sources": source_list})
+                    yield _sse(
+                        "sources",
+                        {"used_retrieval": True, "sources": source_list, "metadata_tools": metadata_tools},
+                    )
                 else:
-                    yield _sse("sources", {"used_retrieval": False, "sources": []})
+                    yield _sse(
+                        "sources",
+                        {"used_retrieval": False, "sources": [], "metadata_tools": metadata_tools},
+                    )
 
                 # 开始生成前（M4）
                 yield _sse("status", {"stage": "generating"})
