@@ -105,3 +105,13 @@ class PostListResponse(BaseModel):
 
 class SummaryResponse(BaseModel):
     summary: str
+
+
+class PostNeighbor(BaseModel):
+    title: str
+    slug: str
+
+
+class NeighborsResponse(BaseModel):
+    prev: PostNeighbor | None
+    next: PostNeighbor | None

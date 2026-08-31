@@ -59,3 +59,18 @@ export interface PostWrite {
   tag_ids: number[];
   is_featured: boolean;
 }
+
+export interface PostListResponse {
+  items: PostListItem[];
+  total: number;
+}
+
+export interface PostNeighbor {
+  title: string;
+  slug: string;
+}
+
+export interface NeighborsResponse {
+  prev: PostNeighbor | null;
+  next: PostNeighbor | null;
+}

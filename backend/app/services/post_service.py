@@ -27,7 +27,8 @@ from app.models import (
     Tag,
 )
 from app.rag import llm
-from app.schemas import PostDetail, PostListItem, PostWrite
+from app.rag.markdown import build_toc
+from app.schemas import PostDetail, PostListItem, PostWrite, TocItem
 from app.services.slug import slugify, unique_slug
 
 # 中文阅读速度约 300~400 字/分钟，取 300 做保守估算（FR-POST 阅读时长）
@@ -225,14 +226,33 @@ def delete_post(db: Session, post: Post) -> None:
 
 
 def to_detail(post: Post) -> PostDetail:
-    """把 ORM 对象组装为详情响应（含正文、分类/标签 id；TOC 由 T1-8 填充）。"""
+    """把 ORM 对象组装为详情响应（含正文、分类/标签 id、TOC）。"""
     return PostDetail(
         **PostListItem.model_validate(post).model_dump(),
         content_md=post.content_md,
         category_id=post.category_id,
         tag_ids=[t.id for t in post.tags],
-        toc=[],
+        toc=[TocItem(level=h.level, text=h.text, anchor=h.anchor) for h in build_toc(post.content_md)],
     )
+
+
+def get_neighbors(db: Session, post: Post) -> tuple[Post | None, Post | None]:
+    """上一篇（更早发布）/ 下一篇（更晚发布），FR-VIEW-12。"""
+    if post.published_at is None:
+        return None, None
+    prev_post = db.execute(
+        select(Post)
+        .where(Post.status == PostStatus.published, Post.published_at < post.published_at)
+        .order_by(Post.published_at.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    next_post = db.execute(
+        select(Post)
+        .where(Post.status == PostStatus.published, Post.published_at > post.published_at)
+        .order_by(Post.published_at.asc())
+        .limit(1)
+    ).scalar_one_or_none()
+    return prev_post, next_post
 
 
 # 摘要生成：截断超长正文，避免 token 浪费

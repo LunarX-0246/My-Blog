@@ -9,7 +9,14 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.deps import get_current_admin
-from app.schemas import PostDetail, PostListResponse, PostWrite, SummaryResponse
+from app.schemas import (
+    NeighborsResponse,
+    PostDetail,
+    PostListResponse,
+    PostNeighbor,
+    PostWrite,
+    SummaryResponse,
+)
 from app.services import post_service
 
 router = APIRouter(prefix="/api/posts", tags=["posts"])
@@ -30,6 +37,16 @@ def list_posts(
 @router.get("/{slug}", response_model=PostDetail)
 def get_post(slug: str, db: Session = Depends(get_db)) -> PostDetail:
     return post_service.to_detail(post_service.get_published_by_slug(db, slug))
+
+
+@router.get("/{slug}/neighbors", response_model=NeighborsResponse)
+def get_neighbors(slug: str, db: Session = Depends(get_db)) -> NeighborsResponse:
+    post = post_service.get_published_by_slug(db, slug)
+    prev_post, next_post = post_service.get_neighbors(db, post)
+    return NeighborsResponse(
+        prev=PostNeighbor(title=prev_post.title, slug=prev_post.slug) if prev_post else None,
+        next=PostNeighbor(title=next_post.title, slug=next_post.slug) if next_post else None,
+    )
 
 
 @router.post(
