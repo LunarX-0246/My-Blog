@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session, selectinload
 
+from app.config import settings
 from app.errors import ApiError
 from app.models import (
     Category,
@@ -201,6 +202,26 @@ def unpublish(db: Session, post: Post) -> Post:
         post.idx_status = IndexStatus.pending
         db.commit()
     return _load_full(db, post.id)
+
+
+def delete_post(db: Session, post: Post) -> None:
+    """硬删除文章（D1）：级联清理块、配图记录与磁盘文件。不可恢复。"""
+    # 先收集配图存储名：删除文章后 FK 级联会清掉 images 行，需先记住文件名以删磁盘文件
+    image_names = [
+        i.stored_name
+        for i in db.scalars(select(Image).where(Image.post_id == post.id)).all()
+    ]
+    # 块是多态关联（无外键），需手动删除
+    db.execute(
+        delete(Chunk).where(Chunk.src_type == SourceType.post, Chunk.src_id == post.id)
+    )
+    # 删除文章：FK 级联删除 post_tags 与 images 行
+    db.delete(post)
+    db.commit()
+    # 删除磁盘上的配图文件
+    images_dir = settings.images_dir
+    for name in image_names:
+        (images_dir / name).unlink(missing_ok=True)
 
 
 def to_detail(post: Post) -> PostDetail:

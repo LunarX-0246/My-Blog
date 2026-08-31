@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { clientFetch } from "@/lib/api";
 import type { PostListItem } from "@/lib/types";
@@ -11,12 +11,36 @@ const statusText: Record<string, string> = { draft: "草稿", published: "已发
 export default function AdminPostsPage() {
   const [posts, setPosts] = useState<PostListItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<number | null>(null);
 
-  useEffect(() => {
+  const load = useCallback(() => {
     clientFetch<PostListItem[]>("/api/admin/posts")
       .then(setPosts)
       .catch((e) => setError(e instanceof Error ? e.message : "加载失败"));
   }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function run(id: number, fn: () => Promise<unknown>) {
+    setBusyId(id);
+    setError(null);
+    try {
+      await fn();
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "操作失败");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  function handleDelete(p: PostListItem) {
+    // 硬删除二次确认，提示中包含标题（FR-POST-15）
+    if (!window.confirm(`确定删除文章「${p.title}」吗？此操作不可恢复。`)) return;
+    void run(p.id, () => clientFetch(`/api/posts/${p.id}`, { method: "DELETE" }));
+  }
 
   return (
     <main className="min-h-screen p-6">
@@ -33,7 +57,6 @@ export default function AdminPostsPage() {
 
         {error && <p className="text-sm text-red-400">{error}</p>}
         {posts === null && !error && <p className="text-muted">加载中…</p>}
-
         {posts && posts.length === 0 && <p className="text-muted">还没有文章。</p>}
 
         {posts && posts.length > 0 && (
@@ -42,12 +65,17 @@ export default function AdminPostsPage() {
               <li key={p.id} className="flex items-center justify-between gap-4 px-4 py-3">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <Link href={`/admin/posts/${p.id}/edit`} className="truncate font-medium hover:text-accent">
+                    <Link
+                      href={`/admin/posts/${p.id}/edit`}
+                      className="truncate font-medium hover:text-accent"
+                    >
                       {p.title || "（无标题）"}
                     </Link>
                     <span
                       className={`shrink-0 rounded-full px-2 py-0.5 text-xs ${
-                        p.status === "published" ? "bg-accent/20 text-accent" : "bg-surface-hover text-muted"
+                        p.status === "published"
+                          ? "bg-accent/20 text-accent"
+                          : "bg-surface-hover text-muted"
                       }`}
                     >
                       {statusText[p.status] ?? p.status}
@@ -58,8 +86,43 @@ export default function AdminPostsPage() {
                     {p.tags.length > 0 && ` · ${p.tags.map((t) => t.name).join(" / ")}`}
                   </div>
                 </div>
-                <div className="shrink-0 text-right text-xs text-faint">
-                  {p.updated_at ? new Date(p.updated_at).toLocaleDateString("zh-CN") : ""}
+
+                <div className="flex shrink-0 items-center gap-2 text-sm">
+                  <span className="mr-2 hidden text-xs text-faint sm:inline">
+                    {p.updated_at ? new Date(p.updated_at).toLocaleDateString("zh-CN") : ""}
+                  </span>
+                  {p.status === "draft" ? (
+                    <button
+                      onClick={() =>
+                        void run(p.id, () =>
+                          clientFetch(`/api/posts/${p.id}/publish`, { method: "POST" }),
+                        )
+                      }
+                      disabled={busyId === p.id}
+                      className="rounded-md border border-accent px-2.5 py-1 text-xs text-accent hover:bg-accent hover:text-accent-foreground disabled:opacity-50"
+                    >
+                      发布
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() =>
+                        void run(p.id, () =>
+                          clientFetch(`/api/posts/${p.id}/unpublish`, { method: "POST" }),
+                        )
+                      }
+                      disabled={busyId === p.id}
+                      className="rounded-md border border-border px-2.5 py-1 text-xs text-muted hover:text-foreground disabled:opacity-50"
+                    >
+                      撤回
+                    </button>
+                  )}
+                  <button
+                    onClick={() => handleDelete(p)}
+                    disabled={busyId === p.id}
+                    className="rounded-md border border-border px-2.5 py-1 text-xs text-red-400 hover:bg-red-400/10 disabled:opacity-50"
+                  >
+                    删除
+                  </button>
                 </div>
               </li>
             ))}

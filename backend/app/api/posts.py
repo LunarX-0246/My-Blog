@@ -74,3 +74,12 @@ def unpublish_post(post_id: int, db: Session = Depends(get_db)) -> PostDetail:
 def generate_summary(post_id: int, db: Session = Depends(get_db)) -> SummaryResponse:
     post = post_service.get_by_id(db, post_id)
     return SummaryResponse(summary=post_service.generate_summary(db, post))
+
+
+@router.delete(
+    "/{post_id}", dependencies=[Depends(get_current_admin)],
+)
+def delete_post(post_id: int, db: Session = Depends(get_db)) -> dict[str, bool]:
+    post = post_service.get_by_id(db, post_id)
+    post_service.delete_post(db, post)
+    return {"ok": True}
