@@ -149,28 +149,37 @@ def retrieve(
     query_vec = embed_one(query)
     vec_results = get_store().search(db, query_vec, settings.retrieve_top_k, flt)
 
-    # 2. BM25 检索（缓存索引，M1；命中缓存时每次只做一次毫秒级 search）
-    bm25, all_chunks = _get_cached_bm25(db)
-    src_ids = _flt_src_ids(db, flt)
+    # 2. BM25 检索
     bm25_results: list[ScoredChunk] = []
-    for i, score in bm25.search(query, settings.retrieve_top_k * 3):
-        c = all_chunks[i]
-        if not _match_flt(c, flt, src_ids):
-            continue
-        bm25_results.append(
-            ScoredChunk(
-                src_type=c.src_type,
-                src_id=c.src_id,
-                seq=c.seq,
-                content=c.content,
-                context_prefix=c.context_prefix,
-                page_no=c.page_no,
-                anchor=c.anchor,
-                score=score,
+    if flt and flt.src_id is not None:
+        # 限定单篇（FR-ASK-14）：候选块少，直接在候选集上临时建 BM25（R2）。
+        # 若走全局缓存的事后过滤，单篇里的精确术语可能排在全局前 N 名之外，BM25 空手而归。
+        chunks = load_chunks(db, flt)
+        bm25 = BM25([c.content for c in chunks])
+        for i, score in bm25.search(query, settings.retrieve_top_k):
+            c = chunks[i]
+            bm25_results.append(
+                ScoredChunk(
+                    src_type=c.src_type, src_id=c.src_id, seq=c.seq, content=c.content,
+                    context_prefix=c.context_prefix, page_no=c.page_no, anchor=c.anchor, score=score,
+                )
             )
-        )
-        if len(bm25_results) >= settings.retrieve_top_k:
-            break
+    else:
+        # 全局缓存路径（M1）：命中缓存时每次只做一次毫秒级 search，事后按 flt 过滤
+        bm25, all_chunks = _get_cached_bm25(db)
+        src_ids = _flt_src_ids(db, flt)
+        for i, score in bm25.search(query, settings.retrieve_top_k * 3):
+            c = all_chunks[i]
+            if not _match_flt(c, flt, src_ids):
+                continue
+            bm25_results.append(
+                ScoredChunk(
+                    src_type=c.src_type, src_id=c.src_id, seq=c.seq, content=c.content,
+                    context_prefix=c.context_prefix, page_no=c.page_no, anchor=c.anchor, score=score,
+                )
+            )
+            if len(bm25_results) >= settings.retrieve_top_k:
+                break
 
     # 3. RRF 融合
     return rrf_fusion([vec_results, bm25_results], settings.rrf_k, top_k)
