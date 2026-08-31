@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { clientFetch } from "@/lib/api";
@@ -18,7 +18,7 @@ const emptyForm: PostWrite = {
   is_featured: false,
 };
 
-/** 文章编辑器：属性表单 + 正文。postId 为 null 表示新建。 */
+/** 文章编辑器：属性表单 + 正文 + 自动保存。postId 为 null 表示新建。 */
 export default function PostEditor({ postId }: { postId: number | null }) {
   const router = useRouter();
   const [form, setForm] = useState<PostWrite>(emptyForm);
@@ -27,6 +27,10 @@ export default function PostEditor({ postId }: { postId: number | null }) {
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [dirty, setDirty] = useState(false);
+  const [lastSaved, setLastSaved] = useState<string | null>(null);
+  // dirtyRef 供 beforeunload 使用（事件回调里读最新值，避免闭包过期）
+  const dirtyRef = useRef(false);
 
   useEffect(() => {
     async function load() {
@@ -58,36 +62,59 @@ export default function PostEditor({ postId }: { postId: number | null }) {
     void load();
   }, [postId]);
 
+  function updateForm(v: PostWrite) {
+    setForm(v);
+    setDirty(true);
+    dirtyRef.current = true;
+  }
+
   function buildBody(): PostWrite {
     return { ...form, slug: form.slug?.trim() || null };
   }
 
-  async function save() {
-    setSaving(true);
-    setError(null);
+  async function persist(silent: boolean) {
+    if (postId == null) return;
+    if (!silent) setSaving(true);
     try {
-      if (postId == null) {
+      await clientFetch<PostDetail>(`/api/posts/${postId}`, {
+        method: "PUT",
+        body: JSON.stringify(buildBody()),
+      });
+      setDirty(false);
+      dirtyRef.current = false;
+      setLastSaved(new Date().toLocaleTimeString("zh-CN", { hour12: false }));
+    } catch (e) {
+      if (!silent) setError(e instanceof Error ? e.message : "保存失败");
+    } finally {
+      if (!silent) setSaving(false);
+    }
+  }
+
+  async function save() {
+    setError(null);
+    if (postId == null) {
+      setSaving(true);
+      try {
         const p = await clientFetch<PostDetail>("/api/posts", {
           method: "POST",
           body: JSON.stringify(buildBody()),
         });
+        setDirty(false);
+        dirtyRef.current = false;
         router.replace(`/admin/posts/${p.id}/edit`);
-      } else {
-        await clientFetch<PostDetail>(`/api/posts/${postId}`, {
-          method: "PUT",
-          body: JSON.stringify(buildBody()),
-        });
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "保存失败");
+      } finally {
+        setSaving(false);
       }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "保存失败");
-    } finally {
-      setSaving(false);
+    } else {
+      await persist(false);
     }
   }
 
   async function publish() {
-    setSaving(true);
     setError(null);
+    setSaving(true);
     try {
       let id = postId;
       if (id == null) {
@@ -99,6 +126,8 @@ export default function PostEditor({ postId }: { postId: number | null }) {
         router.replace(`/admin/posts/${id}/edit`);
       }
       await clientFetch<PostDetail>(`/api/posts/${id}/publish`, { method: "POST" });
+      setDirty(false);
+      dirtyRef.current = false;
     } catch (e) {
       setError(e instanceof Error ? e.message : "发布失败");
     } finally {
@@ -106,45 +135,67 @@ export default function PostEditor({ postId }: { postId: number | null }) {
     }
   }
 
+  // 自动保存：停止输入 3 秒后静默保存草稿（FR-POST-06）
+  useEffect(() => {
+    if (!loaded || postId == null || !dirty) return;
+    const t = setTimeout(() => void persist(true), 3000);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dirty, form, postId, loaded]);
+
+  // 离开页面时若有未保存修改，给出确认提示（FR-POST-07）
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (dirtyRef.current) {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, []);
+
   if (!loaded) {
     return <div className="p-8 text-muted">加载中…</div>;
   }
 
-  const btnBase =
-    "rounded-md px-4 py-2 text-sm font-medium disabled:opacity-50";
+  const btnBase = "rounded-md px-4 py-2 text-sm font-medium disabled:opacity-50";
 
   return (
     <main className="min-h-screen p-6">
       <div className="mx-auto max-w-4xl space-y-6">
         <header className="flex items-center justify-between">
           <h1 className="text-xl font-semibold">{postId == null ? "新建文章" : "编辑文章"}</h1>
-          <div className="flex gap-2">
-            <button
-              onClick={save}
-              disabled={saving}
-              className={`${btnBase} border border-border text-muted hover:text-foreground`}
-            >
-              {saving ? "保存中…" : "保存"}
-            </button>
-            <button
-              onClick={publish}
-              disabled={saving}
-              className={`${btnBase} bg-accent text-accent-foreground hover:opacity-90`}
-            >
-              发布
-            </button>
+          <div className="flex items-center gap-3">
+            {lastSaved && <span className="text-xs text-faint">已保存 {lastSaved}</span>}
+            <div className="flex gap-2">
+              <button
+                onClick={save}
+                disabled={saving}
+                className={`${btnBase} border border-border text-muted hover:text-foreground`}
+              >
+                {saving ? "保存中…" : "保存"}
+              </button>
+              <button
+                onClick={publish}
+                disabled={saving}
+                className={`${btnBase} bg-accent text-accent-foreground hover:opacity-90`}
+              >
+                发布
+              </button>
+            </div>
           </div>
         </header>
 
         {error && <p className="text-sm text-red-400">{error}</p>}
 
-        <MetaForm value={form} categories={categories} tags={tags} onChange={setForm} />
+        <MetaForm value={form} categories={categories} tags={tags} onChange={updateForm} />
 
         <div className="space-y-1.5">
           <span className="text-sm text-muted">正文（Markdown）</span>
           <MarkdownEditor
             value={form.content_md}
-            onChange={(v) => setForm({ ...form, content_md: v })}
+            onChange={(v) => updateForm({ ...form, content_md: v })}
           />
         </div>
       </div>
