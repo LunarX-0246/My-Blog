@@ -116,7 +116,12 @@ def ask(body: AskRequest, request: Request, db: Session = Depends(get_db)) -> St
 
                 # 两条路径统一流式输出（H2），不再整段 yield；记录 token 用量（M3）
                 usage = [result.tool_usage]
+                t_first = time.monotonic()
+                first_logged = False
                 for delta in llm.stream_chat(result.final_messages, usage_out=usage):
+                    if not first_logged:
+                        logger.info("ask.timing first_token=%.0fms", (time.monotonic() - t_first) * 1000)
+                        first_logged = True
                     yield _sse("delta", {"text": delta})
                 final_usage = usage[1] if len(usage) > 1 else llm.Usage()
                 tokens = {

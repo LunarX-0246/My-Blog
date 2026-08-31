@@ -6,6 +6,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import time
 from dataclasses import dataclass, field
 
 from sqlalchemy.orm import Session
@@ -14,6 +16,8 @@ from app.rag import llm, retriever
 from app.rag.generator import NO_RETRIEVAL_PROMPT, SYSTEM_PROMPT, build_context
 from app.rag.llm import Usage
 from app.rag.store.base import ScoredChunk, SearchFilter
+
+logger = logging.getLogger(__name__)
 
 AGENT_PROMPT = (
     "你是「My Blog」的问答助手。判断当前问题是否需要检索博主的文章与知识库：\n"
@@ -72,7 +76,9 @@ def run_agent(
         + history
         + [{"role": "user", "content": question}]
     )
+    t_decision = time.monotonic()
     resp = llm.chat_with_tools(agent_messages, TOOLS)
+    logger.info("ask.timing tool_decision=%.0fms", (time.monotonic() - t_decision) * 1000)
 
     # 模型未调用工具 → 未检索，仍需在 R1 约束下作答（H1），走流式（H2）
     if not resp.tool_calls:

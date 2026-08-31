@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -19,6 +20,22 @@ from app.db import SessionLocal
 from app.errors import register_exception_handlers
 from app.models import Setting
 from app.services import index_service
+
+
+def _setup_logging() -> None:
+    """让业务 logger（app.*）以 INFO 输出到 stderr。
+
+    uvicorn 默认只配置了 uvicorn 自己的 logger，根 logger 无 handler，
+    业务模块里的 logger.info / logger.exception 会被静默丢弃（R3 耗时日志、M2 错误日志都依赖它）。
+    """
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
+    app_logger = logging.getLogger("app")
+    app_logger.setLevel(logging.INFO)
+    app_logger.addHandler(handler)
+
+
+_setup_logging()
 
 
 def _check_embedding_model() -> None:

@@ -8,7 +8,9 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import threading
+import time
 from collections import defaultdict
 
 from sqlalchemy import and_, or_, select
@@ -19,6 +21,8 @@ from app.models import Chunk, Document, SourceType, document_tags, post_tags
 from app.rag.bm25 import BM25
 from app.rag.embedder import embed_one
 from app.rag.store.base import ScoredChunk, SearchFilter, get_store
+
+logger = logging.getLogger(__name__)
 
 
 def _apply_filter(stmt, flt: SearchFilter | None):
@@ -146,7 +150,10 @@ def retrieve(
     top_k = top_k or settings.context_top_k
 
     # 1. 向量检索
+    t_embed = time.monotonic()
     query_vec = embed_one(query)
+    embed_ms = (time.monotonic() - t_embed) * 1000
+    t_search = time.monotonic()
     vec_results = get_store().search(db, query_vec, settings.retrieve_top_k, flt)
 
     # 2. BM25 检索
@@ -182,7 +189,10 @@ def retrieve(
                 break
 
     # 3. RRF 融合
-    return rrf_fusion([vec_results, bm25_results], settings.rrf_k, top_k)
+    fused = rrf_fusion([vec_results, bm25_results], settings.rrf_k, top_k)
+    search_ms = (time.monotonic() - t_search) * 1000
+    logger.info("retrieve.timing embed=%.0fms search=%.0fms", embed_ms, search_ms)
+    return fused
 
 
 def _main() -> None:
