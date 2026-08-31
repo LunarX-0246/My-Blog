@@ -14,13 +14,13 @@ from sqlalchemy import delete, select
 
 from app.config import settings
 from app.db import SessionLocal
-from app.models import Chunk, Document, IndexStatus, IndexTask, Post, SourceType
+from app.models import Chunk, Document, IndexStatus, IndexTask, Post, Setting, SourceType
 from app.rag import chunker, embedder, parser
 from app.rag.store.base import ChunkVec, get_store
 
 logger = logging.getLogger(__name__)
 
-_queue: asyncio.Queue[tuple[int, str, int]] = asyncio.Queue()
+_queue: asyncio.Queue[tuple[int, str, int, bool]] = asyncio.Queue()
 _loop: asyncio.AbstractEventLoop | None = None
 
 
@@ -40,8 +40,8 @@ def start_worker() -> None:
     _recover_pending()
 
 
-def enqueue(src_type: str, src_id: int) -> None:
-    """创建索引任务并入队（供 API 层调用）。"""
+def enqueue(src_type: str, src_id: int, *, force: bool = False) -> None:
+    """创建索引任务并入队（供 API 层调用）。force=True 表示全量重建，忽略指纹。"""
     with SessionLocal() as db:
         task = IndexTask(
             src_type=_to_enum(src_type), src_id=src_id, status=IndexStatus.queued
@@ -52,7 +52,7 @@ def enqueue(src_type: str, src_id: int) -> None:
         # 源内容置为排队中
         _set_source_idx_status(db, src_type, src_id, IndexStatus.queued, None)
     if _loop is not None:
-        _loop.call_soon_threadsafe(_queue.put_nowait, (task_id, src_type, src_id))
+        _loop.call_soon_threadsafe(_queue.put_nowait, (task_id, src_type, src_id, force))
 
 
 def _set_source_idx_status(db, src_type: str, src_id: int, status: IndexStatus, error: str | None) -> None:
@@ -77,22 +77,22 @@ def _recover_pending() -> None:
         ).all()
         for t in rows:
             src_type = t.src_type.value
-            _queue.put_nowait((t.id, src_type, t.src_id))
+            _queue.put_nowait((t.id, src_type, t.src_id, False))
     logger.info("index worker recovered %d pending tasks", len(rows))
 
 
 async def _worker_loop() -> None:
     while True:
-        task_id, src_type, src_id = await _queue.get()
+        task_id, src_type, src_id, force = await _queue.get()
         try:
-            await asyncio.to_thread(_process_task, task_id, src_type, src_id)
+            await asyncio.to_thread(_process_task, task_id, src_type, src_id, force)
         except Exception as e:  # noqa: BLE001 —— 单任务异常不应中断 worker
             logger.exception("index task %d failed", task_id)
         finally:
             _queue.task_done()
 
 
-def _process_task(task_id: int, src_type: str, src_id: int) -> None:
+def _process_task(task_id: int, src_type: str, src_id: int, force: bool = False) -> None:
     with SessionLocal() as db:
         task = db.get(IndexTask, task_id)
         if not task:
@@ -101,7 +101,7 @@ def _process_task(task_id: int, src_type: str, src_id: int) -> None:
         task.started_at = _now()
         db.commit()
         try:
-            chunk_total, chunk_new = _index_source(db, src_type, src_id)
+            chunk_total, chunk_new = _index_source(db, src_type, src_id, force=force)
             task.status = IndexStatus.indexed
             task.chunk_total = chunk_total
             task.chunk_new = chunk_new
@@ -137,20 +137,28 @@ def _chunk_source(db, src_type: str, src_id: int) -> list[chunker.ChunkData]:
     return chunker.chunk_plain_text(doc.parsed_text, root_ctx=root_ctx, description=doc.description)
 
 
-def _index_source(db, src_type: str, src_id: int) -> tuple[int, int]:
-    """增量索引：指纹比对，仅向量化新增/变化的块（R6）。"""
+def _index_source(db, src_type: str, src_id: int, *, force: bool = False) -> tuple[int, int]:
+    """增量索引：指纹比对，仅向量化新增/变化的块（R6）。force=True 时忽略指纹全量重算。"""
     new_chunks = _chunk_source(db, src_type, src_id)
 
-    # 现有块的 指纹 -> embedding
-    existing = {
-        c.fingerprint: c.embedding
-        for c in db.scalars(
-            select(Chunk).where(Chunk.src_type == _to_enum(src_type), Chunk.src_id == src_id)
-        ).all()
-    }
+    if force:
+        # 全量重建：先清空该源旧块，再全部重新向量化（RAG-INC-03 / FR-IDX-06）
+        db.execute(
+            delete(Chunk).where(Chunk.src_type == _to_enum(src_type), Chunk.src_id == src_id)
+        )
+        db.commit()
+        existing: dict[str, object] = {}
+    else:
+        # 现有块的 指纹 -> embedding
+        existing = {
+            c.fingerprint: c.embedding
+            for c in db.scalars(
+                select(Chunk).where(Chunk.src_type == _to_enum(src_type), Chunk.src_id == src_id)
+            ).all()
+        }
 
-    # 需要向量化的块（新增或指纹变化）
-    to_embed = [c for c in new_chunks if c.fingerprint not in existing]
+    # 需要向量化的块（force 时全部；增量时仅新增或指纹变化）
+    to_embed = new_chunks if force else [c for c in new_chunks if c.fingerprint not in existing]
     embeddings: dict[str, list[float]] = {}
     if to_embed:
         vecs = embedder.embed_batch([c.embed_text for c in to_embed])
@@ -201,5 +209,36 @@ def rebuild_all() -> int:
         docs = db.scalars(select(Document)).all()
         sources = [("post", p.id) for p in posts] + [("document", d.id) for d in docs]
     for src_type, src_id in sources:
-        enqueue(src_type, src_id)
+        enqueue(src_type, src_id, force=True)
     return len(sources)
+
+
+def _rebuild_sync() -> int:
+    """同步全量重建（CLI 用，绕过队列与启动自检）。
+
+    换 embedding 模型后，启动自检会因「模型不一致」拒绝启动，无法走管理页重建。
+    此时用 `python -m app.services.index_service --rebuild` 直接同步重建，
+    并刷新 settings 里的模型记录，使随后启动自检通过。
+    """
+    with SessionLocal() as db:
+        posts = db.scalars(select(Post).where(Post.status == "published")).all()
+        docs = db.scalars(select(Document)).all()
+        sources = [("post", p.id) for p in posts] + [("document", d.id) for d in docs]
+        for src_type, src_id in sources:
+            _index_source(db, src_type, src_id, force=True)
+            _set_source_idx_status(db, src_type, src_id, IndexStatus.indexed, None)
+        current = {"model": settings.embedding_model, "dim": settings.embedding_dim}
+        row = db.get(Setting, "embedding_model")
+        if row:
+            row.value = current
+        else:
+            db.add(Setting(key="embedding_model", value=current))
+        db.commit()
+    return len(sources)
+
+
+if __name__ == "__main__":
+    import sys
+
+    if "--rebuild" in sys.argv:
+        print(f"全量重建完成，共 {_rebuild_sync()} 个内容")
