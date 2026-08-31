@@ -217,8 +217,9 @@ class Image(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     stored_name: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
-    post_id: Mapped[int] = mapped_column(
-        ForeignKey("posts.id", ondelete="CASCADE"), nullable=False
+    # 上传发生在文章保存前（新建时文章尚不存在），故可空；保存时再关联。
+    post_id: Mapped[int | None] = mapped_column(
+        ForeignKey("posts.id", ondelete="CASCADE"), nullable=True
     )
     file_size: Mapped[int] = mapped_column(BigInteger, nullable=False)
     created_at: Mapped[datetime] = mapped_column(

@@ -8,13 +8,23 @@
 from __future__ import annotations
 
 import math
+import re
 from datetime import datetime, timezone
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from app.errors import ApiError
-from app.models import Category, Chunk, IndexStatus, Post, PostStatus, SourceType, Tag
+from app.models import (
+    Category,
+    Chunk,
+    Image,
+    IndexStatus,
+    Post,
+    PostStatus,
+    SourceType,
+    Tag,
+)
 from app.schemas import PostDetail, PostListItem, PostWrite
 from app.services.slug import slugify, unique_slug
 
@@ -46,6 +56,19 @@ def _assign_tags(db: Session, post: Post, tag_ids: list[int]) -> None:
         post.tags = []
 
 
+# 正文里引用的图片 URL 形如 /api/images/<stored_name>
+_IMAGE_URL_RE = re.compile(r"/api/images/([a-zA-Z0-9._-]+)")
+
+
+def _associate_images(db: Session, post: Post) -> None:
+    """把正文引用的图片关联到文章（post_id），供删除时级联清理（D1）。"""
+    names = _IMAGE_URL_RE.findall(post.content_md)
+    if names:
+        db.execute(
+            update(Image).where(Image.stored_name.in_(names)).values(post_id=post.id)
+        )
+
+
 def create_post(db: Session, data: PostWrite) -> Post:
     # 显式给出的 slug 冲突则报错（全站唯一）；未给出则由标题自动生成并去重
     if data.slug:
@@ -67,6 +90,8 @@ def create_post(db: Session, data: PostWrite) -> Post:
     )
     _assign_tags(db, post, data.tag_ids)
     db.add(post)
+    db.flush()  # 先拿到 post.id，供图片关联使用
+    _associate_images(db, post)
     db.commit()
     return _load_full(db, post.id)
 
@@ -87,6 +112,7 @@ def update_post(db: Session, post: Post, data: PostWrite) -> Post:
     if post.status == PostStatus.published:
         post.updated_at = _now()
         post.idx_status = IndexStatus.pending
+    _associate_images(db, post)
     db.commit()
     return _load_full(db, post.id)
 
