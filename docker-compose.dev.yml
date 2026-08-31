@@ -1,0 +1,32 @@
+# 本机开发用编排
+#
+# 只跑数据库一个容器，前后端在本机直接运行以保留热重载与断点调试。
+# 见《技术方案》§10。
+#
+# 启动：docker compose -f docker-compose.dev.yml up -d
+# 停止：docker compose -f docker-compose.dev.yml down
+# 查看日志：docker compose -f docker-compose.dev.yml logs -f postgres
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: blog-postgres-dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-blog}
+      POSTGRES_USER: ${POSTGRES_USER:-blog}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev}
+      # 中文排序与比较
+      LANG: C.UTF-8
+    ports:
+      # ⚠️ 宿主机侧必须是 5433。
+      #    5432 被本机原生 PostgreSQL 18 长期占用且仍在使用，
+      #    详见 环境说明.md §2。容器内部仍是 5432。
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-blog} -d ${POSTGRES_DB:-blog}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
