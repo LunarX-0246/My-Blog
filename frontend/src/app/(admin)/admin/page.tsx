@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useState } from "react";
 
 export default function AdminIndex() {
   const router = useRouter();
@@ -30,9 +31,13 @@ export default function AdminIndex() {
           退出登录
         </button>
       </div>
-      <p className="mt-3 text-muted">
-        阶段 0 骨架：鉴权已生效。文章管理等将在阶段 1 加入。
-      </p>
+
+      <nav className="mt-6 flex flex-col gap-2 text-sm">
+        <Link href="/admin/posts" className="text-muted hover:text-foreground">
+          文章管理 →
+        </Link>
+        <span className="text-faint">知识库管理、索引管理（后续阶段加入）</span>
+      </nav>
     </main>
   );
 }

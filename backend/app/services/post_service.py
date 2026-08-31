@@ -8,7 +8,6 @@
 from __future__ import annotations
 
 import math
-import re
 from datetime import datetime, timezone
 
 from sqlalchemy import delete, func, select
@@ -17,6 +16,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.errors import ApiError
 from app.models import Category, Chunk, IndexStatus, Post, PostStatus, SourceType, Tag
 from app.schemas import PostDetail, PostListItem, PostWrite
+from app.services.slug import slugify, unique_slug
 
 # 中文阅读速度约 300~400 字/分钟，取 300 做保守估算（FR-POST 阅读时长）
 _CHARS_PER_MINUTE = 300
@@ -24,28 +24,6 @@ _CHARS_PER_MINUTE = 300
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
-
-
-def slugify_title(title: str) -> str:
-    """从标题生成 URL slug：中文转拼音，ASCII 单词保留，其余字符转连字符。"""
-    try:
-        from pypinyin import lazy_pinyin
-
-        base = " ".join(lazy_pinyin(title))
-    except ImportError:  # 极端情况：无 pypinyin 时退回原标题
-        base = title
-    slug = re.sub(r"[^a-z0-9]+", "-", base.lower()).strip("-")
-    return slug or "post"
-
-
-def _unique_slug(db: Session, base: str) -> str:
-    """确保 slug 全站唯一；冲突时追加 -2、-3…"""
-    slug = base
-    n = 2
-    while db.scalar(select(Post.id).where(Post.slug == slug)):
-        slug = f"{base}-{n}"
-        n += 1
-    return slug
 
 
 def _read_minutes(content_md: str) -> int:
@@ -75,7 +53,7 @@ def create_post(db: Session, data: PostWrite) -> Post:
         if db.scalar(select(Post.id).where(Post.slug == slug)):
             raise ApiError(409, "slug_conflict", "该 URL 别名已被占用")
     else:
-        slug = _unique_slug(db, slugify_title(data.title) or "post")
+        slug = unique_slug(db, Post, slugify(data.title, "post"))
     post = Post(
         title=data.title.strip(),
         slug=slug,
