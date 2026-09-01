@@ -15,12 +15,14 @@ export default function AdminDocsPage() {
   const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const [form, setForm] = useState({ dir_path: "", title: "", description: "", tags: "" });
+  // 排序：title=按标题（默认），views=按浏览次数（FR-STAT-02）
+  const [sort, setSort] = useState<"title" | "views">("title");
 
   const load = useCallback(() => {
-    clientFetch<DocumentOut[]>("/api/docs")
+    clientFetch<DocumentOut[]>(`/api/docs?sort=${sort}`)
       .then(setDocs)
       .catch((e) => setError(e instanceof Error ? e.message : "加载失败"));
-  }, []);
+  }, [sort]);
 
   useEffect(() => {
     load();
@@ -111,7 +113,15 @@ export default function AdminDocsPage() {
   return (
     <main className="min-h-screen p-6">
       <div className="mx-auto max-w-4xl space-y-6">
-        <h1 className="text-xl font-semibold">知识库管理</h1>
+        <header className="flex items-center justify-between">
+          <h1 className="text-xl font-semibold">知识库管理</h1>
+          <button
+            onClick={() => setSort((s) => (s === "title" ? "views" : "title"))}
+            className="rounded-md border border-border px-3 py-2 text-sm text-muted hover:text-foreground"
+          >
+            {sort === "title" ? "按浏览次数排序" : "按标题排序"}
+          </button>
+        </header>
 
         {/* 上传 */}
         <div className="space-y-3 rounded-lg border border-border p-4">
@@ -155,6 +165,7 @@ export default function AdminDocsPage() {
                   </div>
                   <div className="mt-1 truncate text-xs text-faint">
                     {d.dir_path || "根目录"} · 索引状态：{d.idx_status}
+                    <span className="ml-2 text-muted">浏览 {d.view_count}</span>
                   </div>
                 </div>
                 <div className="flex shrink-0 gap-2 text-xs">

@@ -145,7 +145,9 @@ def list_documents(
     dir_path: str | None = None,
     file_format: str | None = None,
     tag_slug: str | None = None,
+    sort: str = "title",
 ) -> list[Document]:
+    """文档列表。sort 支持 ``title``（默认，按标题）与 ``views``（按浏览次数，FR-STAT-02）。"""
     stmt = select(Document).options(selectinload(Document.tags))
     if dir_path is not None:
         stmt = stmt.where(Document.dir_path == dir_path)
@@ -153,7 +155,8 @@ def list_documents(
         stmt = stmt.where(Document.file_format == file_format)
     if tag_slug:
         stmt = stmt.join(Document.tags).where(Tag.slug == tag_slug)
-    return list(db.scalars(stmt.order_by(Document.title)).all())
+    order = Document.view_count.desc() if sort == "views" else Document.title.asc()
+    return list(db.scalars(stmt.order_by(order)).all())
 
 
 def update_document(

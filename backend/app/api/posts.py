@@ -18,7 +18,7 @@ from app.schemas import (
     PostWrite,
     SummaryResponse,
 )
-from app.services import post_service
+from app.services import post_service, view_service
 
 router = APIRouter(prefix="/api/posts", tags=["posts"])
 
@@ -38,7 +38,10 @@ def list_posts(
 
 @router.get("/{slug}", response_model=PostDetail)
 def get_post(slug: str, db: Session = Depends(get_db)) -> PostDetail:
-    return post_service.to_detail(post_service.get_published_by_slug(db, slug))
+    post = post_service.get_published_by_slug(db, slug)
+    # 浏览计数：后台线程异步 +1，不阻塞响应（FR-STAT-01）
+    view_service.increment_view("post", post.id)
+    return post_service.to_detail(post)
 
 
 @router.get("/{slug}/neighbors", response_model=NeighborsResponse)
