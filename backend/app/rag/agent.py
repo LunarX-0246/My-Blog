@@ -140,6 +140,8 @@ def run_agent(
     )
     used_tools: list[str] = []
     sources: list[ScoredChunk] = []
+    # B1：已纳入 sources 的块去重键，保证多次 search_kb 时同一块不重复编号
+    seen: set[tuple[str, int, int]] = set()
     tool_usage = Usage()
 
     for _ in range(settings.agent_max_rounds):
@@ -173,8 +175,17 @@ def run_agent(
             if tc.name == "search_kb":
                 yield "retrieving"
                 flt = _merge_scope(base_flt, args.get("scope") or "all")
-                sources = retriever.retrieve(db, args.get("query") or question, flt=flt)
-                content = build_context(sources) if sources else "未检索到相关内容。"
+                new_sources = retriever.retrieve(db, args.get("query") or question, flt=flt)
+                # B1：来源累加而非覆盖；去重后从全局下标继续编号，避免引用编号撞车
+                start = len(sources) + 1
+                fresh: list[ScoredChunk] = []
+                for c in new_sources:
+                    key = (c.src_type, c.src_id, c.seq)
+                    if key not in seen:
+                        seen.add(key)
+                        sources.append(c)
+                        fresh.append(c)
+                content = build_context(fresh, start=start) if fresh else "未检索到相关内容。"
             elif tc.name == "list_posts":
                 yield "listing"
                 content = tools.list_posts(

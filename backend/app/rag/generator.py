@@ -41,9 +41,14 @@ FINAL_PROMPT = (
 )
 
 
-def build_context(sources: list) -> str:
-    """把检索结果组装为「参考资料」，每条编号 [n]。"""
+def build_context(sources: list, start: int = 1) -> str:
+    """把检索结果组装为「参考资料」，每条编号 [n]。
+
+    start 用于多轮 search_kb 场景（B1）：一次对话可能检索多次，第二次检索的新块
+    要从全局累积下标继续编号，保证模型看到的 [n] 与 AgentResult.sources 的下标一一对应，
+    避免「[1] 指向两处不同内容」的撞车。
+    """
     blocks = []
-    for i, s in enumerate(sources, 1):
+    for i, s in enumerate(sources, start):
         blocks.append(f"[{i}] {s.context_prefix}\n{s.content}")
     return "\n\n".join(blocks)
