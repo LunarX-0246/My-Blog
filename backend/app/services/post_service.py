@@ -31,7 +31,7 @@ from app.rag.markdown import build_toc
 from app.rag.retriever import invalidate_bm25
 from app.rag.store import SearchFilter, get_store
 from app.schemas import PostDetail, PostListItem, PostWrite, TocItem
-from app.services import ask_cache, index_service
+from app.services import ask_cache, index_service, search_service
 from app.services.slug import slugify, unique_slug
 
 # 中文阅读速度约 300~400 字/分钟，取 300 做保守估算（FR-POST 阅读时长）
@@ -246,6 +246,7 @@ def unpublish(db: Session, post: Post) -> Post:
         db.commit()
         invalidate_bm25()
         ask_cache.clear()
+        search_service.invalidate()
     return _load_full(db, post.id)
 
 
@@ -265,6 +266,7 @@ def delete_post(db: Session, post: Post) -> None:
     db.commit()
     invalidate_bm25()
     ask_cache.clear()
+    search_service.invalidate()
     # 删除磁盘上的配图文件
     images_dir = settings.images_dir
     for name in image_names:

@@ -18,7 +18,7 @@ from app.models import Chunk, Document, IndexStatus, IndexTask, Post, Setting, S
 from app.rag import chunker, embedder, parser
 from app.rag.retriever import invalidate_bm25
 from app.rag.store.base import ChunkVec, get_store
-from app.services import ask_cache
+from app.services import ask_cache, search_service
 
 logger = logging.getLogger(__name__)
 
@@ -44,8 +44,9 @@ def start_worker() -> None:
 
 def enqueue(src_type: str, src_id: int, *, force: bool = False) -> None:
     """创建索引任务并入队（供 API 层调用）。force=True 表示全量重建，忽略指纹。"""
-    # 内容变更 → 清空问答缓存（N7，决策 A：全清）
+    # 内容变更 → 清空问答缓存（N7，决策 A：全清）与搜索缓存（B5，同步失效，避免搜索滞后于发布/编辑）
     ask_cache.clear()
+    search_service.invalidate()
     with SessionLocal() as db:
         task = IndexTask(
             src_type=_to_enum(src_type), src_id=src_id, status=IndexStatus.queued,
@@ -132,7 +133,8 @@ def _process_task(task_id: int, src_type: str, src_id: int, force: bool = False)
             db.commit()
             _set_source_idx_status(db, src_type, src_id, IndexStatus.failed, msg)
             logger.exception("index source %s:%s failed", src_type, src_id)
-    # 索引内容已变化（无论成功与否），失效 BM25 缓存（M1）
+    # 索引内容已变化（无论成功与否），失效块级 BM25 缓存（M1）。
+    # 搜索缓存已由 enqueue 同步失效（B5），此处不再重复失效。
     invalidate_bm25()
 
 
@@ -278,6 +280,7 @@ def index_source_sync(src_type: str, src_id: int) -> tuple[int, int]:
     finally:
         # 块集合已变化，失效 BM25 缓存（与 worker 的 _process_task 一致）
         invalidate_bm25()
+        search_service.invalidate()
 
 
 if __name__ == "__main__":
