@@ -102,6 +102,33 @@ def create_post(db: Session, data: PostWrite) -> Post:
     return _load_full(db, post.id)
 
 
+def create_published(
+    db: Session, *, title: str, content_md: str, summary: str = ""
+) -> Post:
+    """以「已发布」状态直接创建文章（批量导入脚本用，T8-1）。
+
+    与 create_post 的区别：跳过草稿态，直接置为 published 并记录发布时刻，
+    也不触发 enqueue——导入脚本在 CLI 环境下没有 worker 消费队列，索引由调用方
+    通过 ``index_service.index_source_sync`` 同步执行（仍走 chunker/embedder/store）。
+    """
+    slug = unique_slug(db, Post, slugify(title, "post"))
+    post = Post(
+        title=title.strip(),
+        slug=slug,
+        summary=summary,
+        content_md=content_md,
+        category_id=None,
+        is_featured=False,
+        status=PostStatus.published,
+        read_minutes=_read_minutes(content_md),
+        idx_status=IndexStatus.pending,
+        published_at=_now(),
+    )
+    db.add(post)
+    db.commit()
+    return _load_full(db, post.id)
+
+
 def update_post(db: Session, post: Post, data: PostWrite) -> Post:
     if data.slug and data.slug != post.slug:
         if db.scalar(select(Post.id).where(Post.slug == data.slug, Post.id != post.id)):
