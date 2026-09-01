@@ -21,7 +21,7 @@ from app.models import Document, Post, PostStatus
 from app.rag import agent, llm, memory
 from app.rag.store.base import SearchFilter
 from app.schemas import AskRequest
-from app.services import qa_log_service, ratelimit
+from app.services import ask_cache, qa_log_service, ratelimit
 
 router = APIRouter(prefix="/api/ask", tags=["ask"])
 
@@ -77,11 +77,36 @@ def ask(body: AskRequest, request: Request, db: Session = Depends(get_db)) -> St
     base_flt = _build_filter(db, body.scope)
     start = time.monotonic()
 
+    # 缓存（仅无历史的单轮问题；多轮上下文依赖不缓存，T7-3 / FR-ASK-23）
+    cache_key: str | None = None
+    if not body.history:
+        cache_key = f"{json.dumps(body.scope or {})}:{ask_cache.normalize(question)}"
+        cached = ask_cache.get(cache_key)
+        if cached is not None:
+            def gen_cached():
+                yield _sse(
+                    "sources",
+                    {
+                        "used_retrieval": cached["used_retrieval"],
+                        "sources": cached["sources"],
+                        "metadata_tools": cached["metadata_tools"],
+                    },
+                )
+                yield _sse("delta", {"text": cached["answer"]})
+                yield _sse(
+                    "done",
+                    {"latency_ms": 0, "tokens": {"prompt": 0, "output": 0}, "cached": True},
+                )
+
+            return StreamingResponse(gen_cached(), media_type="text/event-stream")
+
     def gen():
         # 问答日志数据（只收业务字段，不落 IP/UA 等身份信息，N3）
         answer_parts: list[str] = []
         used_retrieval = False
         hit_chunks: list = []
+        source_list: list = []
+        metadata_tools: list = []
         tokens_prompt = 0
         tokens_output = 0
         error_msg: str | None = None
@@ -103,7 +128,6 @@ def ask(body: AskRequest, request: Request, db: Session = Depends(get_db)) -> St
                     for sc in result.sources
                 ]
 
-                source_list = []
                 if result.used_retrieval:
                     for i, sc in enumerate(result.sources, 1):
                         title, url, excerpt = _source_info(s, sc)
@@ -158,6 +182,17 @@ def ask(body: AskRequest, request: Request, db: Session = Depends(get_db)) -> St
             logger.exception("ask stream failed")
             yield _sse("error", {"message": "抱歉，服务暂时不可用，请稍后再试"})
         finally:
+            # 写缓存（仅单轮 + 成功 + 有回答，T7-3）
+            if cache_key is not None and error_msg is None and answer_parts:
+                ask_cache.put(
+                    cache_key,
+                    {
+                        "used_retrieval": used_retrieval,
+                        "sources": source_list,
+                        "metadata_tools": metadata_tools,
+                        "answer": "".join(answer_parts),
+                    },
+                )
             # 无论成败 / 是否被客户端中断，都异步落日志（N4、T4-3）
             qa_log_service.write_log_async(
                 question=question,

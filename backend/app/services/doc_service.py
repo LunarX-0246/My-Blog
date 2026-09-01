@@ -19,7 +19,7 @@ from app.models import Chunk, Document, IndexStatus, SourceType, Tag
 from app.rag import parser
 from app.rag.retriever import invalidate_bm25
 from app.schemas import DocDirNode, DocumentOut
-from app.services import index_service
+from app.services import ask_cache, index_service
 
 # 扩展名 -> file_format
 _ALLOWED = {".pdf": "pdf", ".md": "markdown", ".markdown": "markdown", ".txt": "txt"}
@@ -207,6 +207,7 @@ def delete_document(db: Session, doc: Document) -> None:
     db.delete(doc)
     db.commit()
     invalidate_bm25()
+    ask_cache.clear()
     # 删除原始文件
     (settings.uploads_dir / stored_name).unlink(missing_ok=True)
 

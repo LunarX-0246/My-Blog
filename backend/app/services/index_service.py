@@ -18,6 +18,7 @@ from app.models import Chunk, Document, IndexStatus, IndexTask, Post, Setting, S
 from app.rag import chunker, embedder, parser
 from app.rag.retriever import invalidate_bm25
 from app.rag.store.base import ChunkVec, get_store
+from app.services import ask_cache
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,8 @@ def start_worker() -> None:
 
 def enqueue(src_type: str, src_id: int, *, force: bool = False) -> None:
     """创建索引任务并入队（供 API 层调用）。force=True 表示全量重建，忽略指纹。"""
+    # 内容变更 → 清空问答缓存（N7，决策 A：全清）
+    ask_cache.clear()
     with SessionLocal() as db:
         task = IndexTask(
             src_type=_to_enum(src_type), src_id=src_id, status=IndexStatus.queued,
