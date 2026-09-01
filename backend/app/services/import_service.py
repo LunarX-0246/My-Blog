@@ -8,7 +8,8 @@
 - 索引：index_service.index_source_sync（chunker → embedder → store，不得绕过）
 
 用法：
-    python -m app.services.import_service --dir <目录>
+    python -m app.services.import_service --dir <目录>             # 实际导入
+    python -m app.services.import_service --dir <目录> --dry-run   # 仅预览
 """
 from __future__ import annotations
 
@@ -40,16 +41,22 @@ def discover_files(dir_path: str) -> list[Path]:
     return sorted(files, key=lambda p: p.name)
 
 
-def import_directory(dir_path: str) -> None:
+def import_directory(dir_path: str, *, dry_run: bool = False) -> None:
     files = discover_files(dir_path)
     if not files:
         print("目录下没有 Markdown 文件。")
         return
 
-    print(f"导入 {len(files)} 个 Markdown 文件：")
+    print(f"将{'预览' if dry_run else '导入'} {len(files)} 个 Markdown 文件：")
     for f in files:
         content = f.read_text(encoding="utf-8")
         title = extract_title(content, f.name)
+
+        if dry_run:
+            # 预览只展示基础 slug；实际导入时若与库中已有 slug 冲突会自动加 -2/-3 后缀
+            base_slug = slugify(title, "post")
+            print(f"  - {f.name} → 标题「{title}」 slug={base_slug} 字数={len(content)}")
+            continue
 
         with SessionLocal() as db:
             post = post_service.create_published(db, title=title, content_md=content)
@@ -67,8 +74,9 @@ def import_directory(dir_path: str) -> None:
 def _main() -> None:
     parser = argparse.ArgumentParser(description="批量导入 Markdown 为已发布文章并触发索引")
     parser.add_argument("--dir", required=True, help="Markdown 文件所在目录")
+    parser.add_argument("--dry-run", action="store_true", help="仅预览将导入什么，不写入")
     args = parser.parse_args()
-    import_directory(args.dir)
+    import_directory(args.dir, dry_run=args.dry_run)
 
 
 if __name__ == "__main__":
