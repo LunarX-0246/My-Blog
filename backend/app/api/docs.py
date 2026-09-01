@@ -12,7 +12,7 @@ from app.deps import get_current_admin
 from app.errors import ApiError
 from app.models import Chunk, SourceType
 from app.schemas import DocChunk, DocDirNode, DocumentDetail, DocumentOut, DocumentUpdate
-from app.services import doc_service
+from app.services import doc_service, view_service
 
 router = APIRouter(prefix="/api/docs", tags=["docs"])
 
@@ -35,6 +35,8 @@ def list_docs(
 @router.get("/{doc_id}", response_model=DocumentDetail)
 def get_doc(doc_id: int, db: Session = Depends(get_db)) -> DocumentDetail:
     doc = doc_service.get_document(db, doc_id)
+    # 浏览计数：后台线程异步 +1，不阻塞响应（FR-STAT-01）
+    view_service.increment_view("document", doc.id)
     chunks = db.scalars(
         select(Chunk)
         .where(Chunk.src_type == SourceType.document, Chunk.src_id == doc_id)
