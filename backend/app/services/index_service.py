@@ -254,6 +254,29 @@ def _rebuild_sync() -> int:
     return len(sources)
 
 
+def index_source_sync(src_type: str, src_id: int) -> tuple[int, int]:
+    """同步索引单个内容（批量导入脚本用，T8-1）。
+
+    复用与 worker 完全相同的 ``_index_source``（chunker → embedder → store），
+    只是绕过队列与线程，让 CLI 脚本能立即拿到块数与索引状态。不写 index_tasks 表
+    （导入脚本直接驱动，无需崩溃恢复语义）。失败时把源内容标记为 failed 并抛出，
+    由调用方决定继续导入下一份还是中止。
+    """
+    try:
+        with SessionLocal() as db:
+            chunk_total, chunk_new = _index_source(db, src_type, src_id)
+            _set_source_idx_status(db, src_type, src_id, IndexStatus.indexed, None)
+        return chunk_total, chunk_new
+    except Exception as e:  # noqa: BLE001 —— 单篇失败不应中断批量导入，交给调用方处理
+        msg = str(e)[:500] or "索引失败"
+        with SessionLocal() as db:
+            _set_source_idx_status(db, src_type, src_id, IndexStatus.failed, msg)
+        raise
+    finally:
+        # 块集合已变化，失效 BM25 缓存（与 worker 的 _process_task 一致）
+        invalidate_bm25()
+
+
 if __name__ == "__main__":
     import sys
 
