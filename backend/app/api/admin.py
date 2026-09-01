@@ -34,9 +34,11 @@ router = APIRouter(
 
 @router.get("/posts", response_model=list[PostListItem])
 def admin_list_posts(
-    status: PostStatus | None = Query(None), db: Session = Depends(get_db)
+    status: PostStatus | None = Query(None),
+    sort: str = Query("updated"),
+    db: Session = Depends(get_db),
 ) -> list[PostListItem]:
-    return post_service.list_admin(db, status)
+    return post_service.list_admin(db, status, sort)
 
 
 @router.get("/posts/{post_id}", response_model=PostDetail)

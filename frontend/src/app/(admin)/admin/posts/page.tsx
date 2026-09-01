@@ -12,12 +12,14 @@ export default function AdminPostsPage() {
   const [posts, setPosts] = useState<PostListItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
+  // 排序：updated=按更新时间（默认），views=按浏览次数（FR-STAT-02）
+  const [sort, setSort] = useState<"updated" | "views">("updated");
 
   const load = useCallback(() => {
-    clientFetch<PostListItem[]>("/api/admin/posts")
+    clientFetch<PostListItem[]>(`/api/admin/posts?sort=${sort}`)
       .then(setPosts)
       .catch((e) => setError(e instanceof Error ? e.message : "加载失败"));
-  }, []);
+  }, [sort]);
 
   useEffect(() => {
     load();
@@ -47,12 +49,20 @@ export default function AdminPostsPage() {
       <div className="mx-auto max-w-4xl space-y-4">
         <header className="flex items-center justify-between">
           <h1 className="text-xl font-semibold">文章管理</h1>
-          <Link
-            href="/admin/posts/new"
-            className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-foreground hover:opacity-90"
-          >
-            新建文章
-          </Link>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setSort((s) => (s === "updated" ? "views" : "updated"))}
+              className="rounded-md border border-border px-3 py-2 text-sm text-muted hover:text-foreground"
+            >
+              {sort === "updated" ? "按浏览次数排序" : "按更新时间排序"}
+            </button>
+            <Link
+              href="/admin/posts/new"
+              className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-foreground hover:opacity-90"
+            >
+              新建文章
+            </Link>
+          </div>
         </header>
 
         {error && <p className="text-sm text-red-400">{error}</p>}
@@ -84,6 +94,7 @@ export default function AdminPostsPage() {
                   <div className="mt-1 text-xs text-faint">
                     {p.category?.name ?? "未分类"}
                     {p.tags.length > 0 && ` · ${p.tags.map((t) => t.name).join(" / ")}`}
+                    <span className="ml-2 text-muted">浏览 {p.view_count}</span>
                   </div>
                 </div>
 

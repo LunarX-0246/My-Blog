@@ -183,11 +183,15 @@ def list_published(
     return list(items), total
 
 
-def list_admin(db: Session, status: PostStatus | None = None) -> list[Post]:
+def list_admin(
+    db: Session, status: PostStatus | None = None, sort: str = "updated"
+) -> list[Post]:
+    """管理端文章列表。sort 支持 ``updated``（默认，按更新时间）与 ``views``（按浏览次数，FR-STAT-02）。"""
     stmt = select(Post).options(selectinload(Post.category), selectinload(Post.tags))
     if status is not None:
         stmt = stmt.where(Post.status == status)
-    return list(db.scalars(stmt.order_by(Post.updated_at.desc())).all())
+    order = Post.view_count.desc() if sort == "views" else Post.updated_at.desc()
+    return list(db.scalars(stmt.order_by(order)).all())
 
 
 def publish(db: Session, post: Post) -> Post:

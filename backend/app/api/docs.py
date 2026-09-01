@@ -27,9 +27,10 @@ def list_docs(
     dir: str | None = None,
     format: str | None = None,
     tag: str | None = None,
+    sort: str = Query("title"),
     db: Session = Depends(get_db),
 ) -> list[DocumentOut]:
-    return doc_service.list_documents(db, dir, format, tag)
+    return doc_service.list_documents(db, dir, format, tag, sort)
 
 
 @router.get("/{doc_id}", response_model=DocumentDetail)
