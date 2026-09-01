@@ -1,0 +1,27 @@
+# 构建上下文排除项。
+# 目的有二：镜像不夹带无关文件；构建上下文小，docker build 更快。
+
+# 运行时数据 —— 上传的文件、配图、向量产物，由 compose 挂载卷提供，绝不进镜像
+data/
+
+# 密钥
+.env
+.env.*
+
+# Python 缓存与虚拟环境
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# 实验产物（对比实验在本机跑，不进生产镜像）
+experiments/output/
+experiments/*.npy
+experiments/*.csv
+
+# 编辑器
+.vscode/
+.idea/

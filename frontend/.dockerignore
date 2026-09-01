@@ -1,0 +1,25 @@
+# 构建上下文排除项。
+# node_modules 必须排除：本机装的是 Windows 平台的包，直接拷进 Linux 镜像会出问题；
+# 而且体积巨大，会让每次 docker build 的上下文传输变得极慢。
+# 镜像里的依赖由 npm ci 在容器内重新安装。
+
+node_modules/
+.next/
+out/
+build/
+
+# 密钥
+.env
+.env.*
+
+# 日志与缓存
+npm-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+tsconfig.tsbuildinfo
+
+# 编辑器与系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
