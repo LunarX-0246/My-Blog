@@ -1,0 +1,41 @@
+{
+  "_说明": "种子文章的分类 / 标签 / 精选归属。导入脚本只负责正文与索引，这类归类信息由管理端设置，这里记下来是为了让整套演示内容可以一键复现。用法见 seed/README.md。",
+  "categories": ["检索与索引", "Agent 工程", "基础原理"],
+  "posts": {
+    "混合检索：向量与 BM25 的融合": {
+      "category": "检索与索引",
+      "tags": ["RAG", "向量检索", "BM25", "混合检索"],
+      "featured": true
+    },
+    "切块策略：为什么不能用固定长度滑窗": {
+      "category": "检索与索引",
+      "tags": ["RAG", "切块", "工程实践"],
+      "featured": true
+    },
+    "增量索引：让重复发布不再烧钱": {
+      "category": "检索与索引",
+      "tags": ["RAG", "增量索引", "成本优化", "工程实践"],
+      "featured": false
+    },
+    "按需检索：把检索做成模型可调用的工具": {
+      "category": "Agent 工程",
+      "tags": ["Agent", "工具调用", "RAG"],
+      "featured": true
+    },
+    "多轮对话的上下文分层压缩": {
+      "category": "Agent 工程",
+      "tags": ["Agent", "上下文管理", "成本优化"],
+      "featured": false
+    },
+    "Embedding 与向量检索基础": {
+      "category": "基础原理",
+      "tags": ["Embedding", "向量检索", "基础原理"],
+      "featured": false
+    },
+    "引用溯源：让答案可被核对": {
+      "category": "Agent 工程",
+      "tags": ["RAG", "引用溯源", "工程实践"],
+      "featured": false
+    }
+  }
+}
