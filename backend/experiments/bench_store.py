@@ -6,7 +6,7 @@
     pg-seq      pgvector 顺序扫描      —— 精确，但走数据库
     pg-hnsw     pgvector + HNSW 索引   —— **近似**，用召回率衡量它漏了多少
 
-指标：P50 / P95 检索延迟、Recall@k、常驻内存。
+指标：P50 / P95 检索延迟、Recall@k、内存/存储占用。
 
 ★ 可复现性（N9）：固定随机种子、固定查询集、记录运行环境。
 ★ 数据真实性（N8）：合成数据以真实向量为基底扰动重采样，
@@ -65,6 +65,28 @@ def _rss_mb() -> float:
         return 0.0
 
 
+def _numpy_mem_mb(store) -> float:
+    """numpy 后端真正的常驻开销：向量矩阵本身占多少内存。
+
+    ★ 为什么不用进程 RSS ★
+    RSS 是**整个进程**的累计值。三个后端跑在同一个进程里、按顺序执行，
+    numpy 的矩阵一旦载入就不释放，于是后面测 pgvector 时读到的 RSS 里
+    仍然含着那块矩阵 —— 三行数字几乎一样，看着像「pgvector 也吃了 900MB」，
+    而 pgvector 的内存其实在 PostgreSQL 服务端进程里，根本不在本进程。
+    所以两种后端各报各的：numpy 报矩阵字节数，pgvector 报表+索引的存储占用。
+    """
+    mat = getattr(store, "_matrix", None)
+    return round(mat.nbytes / 1024 / 1024, 1) if mat is not None else 0.0
+
+
+def _pg_size_mb(db) -> float:
+    """pgvector 后端的开销：实验表 + 其索引在 PostgreSQL 里占的空间（MB）。"""
+    v = db.scalar(
+        text(f"SELECT pg_total_relation_size('{BENCH_SCHEMA}.chunks')")
+    )
+    return round((v or 0) / 1024 / 1024, 1)
+
+
 def _set_hnsw(db, enabled: bool) -> None:
     """开关 HNSW 索引。
 
@@ -73,6 +95,100 @@ def _set_hnsw(db, enabled: bool) -> None:
     """
     db.execute(text(f"SET enable_indexscan = {'on' if enabled else 'off'}"))
     db.execute(text(f"SET enable_bitmapscan = {'on' if enabled else 'off'}"))
+
+
+# ══════════════════════════════════════════════════════════════════
+#  实验数据装载（★ 与生产数据完全隔离）
+# ══════════════════════════════════════════════════════════════════
+
+BENCH_SCHEMA = "bench_tmp"
+
+
+def _scan_kind(db, query_vec: list[float]) -> str:
+    """看 PostgreSQL 实际选了哪种扫描方式。
+
+    ★ 为什么必须查：`SET enable_indexscan = on` 只是**允许**走索引，不是强制。
+      2000 行这种量级，规划器很可能算出顺序扫描更划算，于是 pg-hnsw 这一行
+      其实压根没用上 HNSW —— 数字看着正常，结论是错的。把实际执行计划打出来，
+      比事后猜测可靠。
+    """
+    plan = db.execute(
+        text(
+            "EXPLAIN SELECT id FROM chunks WHERE embedding IS NOT NULL "
+            "ORDER BY embedding <=> CAST(:v AS vector) LIMIT :k"
+        ),
+        {"v": str(query_vec), "k": TOP_K},
+    ).scalars().all()
+    joined = " ".join(plan)
+    if "Index Scan" in joined:
+        return "索引扫描(HNSW)"
+    if "Seq Scan" in joined:
+        return "顺序扫描"
+    return "未知"
+
+
+def _load_bench_schema(db, chunks: list[ChunkVec]) -> None:
+    """把实验语料装进独立 schema，并把会话的 search_path 指过去。
+
+    ★★ 为什么不直接往 public.chunks 里灌 ★★
+
+    PgvectorStore 用的是不带 schema 前缀的 `chunks`，靠 search_path 解析。
+    早先的版本只把合成数据喂给了 numpy，pgvector 侧仍在查库里那几十行真实数据，
+    于是 Recall 实际比较的是「2000 条里的 top-k」和「68 条里的 top-k」——
+    数字（0.805）看着像个正常召回率，其实毫无意义，报告里的 n_chunks 也是假的。
+
+    往 public.chunks 里灌合成数据能对上规模，但会污染我自己的博客内容。
+    所以建一个临时 schema，结构照搬 public.chunks（含 HNSW 索引），
+    实验只在这里跑，跑完整个 schema 直接删掉，生产表一个字节都不动。
+    """
+    db.execute(text(f"DROP SCHEMA IF EXISTS {BENCH_SCHEMA} CASCADE"))
+    db.execute(text(f"CREATE SCHEMA {BENCH_SCHEMA}"))
+    # INCLUDING ALL 会把主键、唯一约束和 HNSW 索引一起复制过来
+    db.execute(
+        text(f"CREATE TABLE {BENCH_SCHEMA}.chunks (LIKE public.chunks INCLUDING ALL)")
+    )
+    db.execute(text(f"SET search_path TO {BENCH_SCHEMA}, public"))
+    db.commit()
+
+    # 批量插入：逐条 ORM upsert 在 2000 条上要几十秒，这里直接走 executemany
+    rows = [
+        {
+            "src_type": c.src_type,
+            "src_id": c.src_id,
+            "seq": c.seq,
+            "content": c.content,
+            "context_prefix": c.context_prefix,
+            "embed_text": c.embed_text,
+            "fingerprint": c.fingerprint,
+            "page_no": c.page_no,
+            "anchor": c.anchor,
+            "embedding": str(c.embedding),
+        }
+        for c in chunks
+    ]
+    ins = text(
+        f"INSERT INTO {BENCH_SCHEMA}.chunks "
+        "(src_type, src_id, seq, content, context_prefix, embed_text, fingerprint, "
+        " page_no, anchor, embedding) VALUES "
+        "(CAST(:src_type AS source_type), :src_id, :seq, :content, :context_prefix, "
+        " :embed_text, :fingerprint, :page_no, :anchor, CAST(:embedding AS vector))"
+    )
+    for i in range(0, len(rows), 500):
+        db.execute(ins, rows[i : i + 500])
+    db.commit()
+    # 让规划器拿到真实的行数与分布，否则它按默认估计选扫描方式
+    db.execute(text(f"ANALYZE {BENCH_SCHEMA}.chunks"))
+    db.commit()
+
+    n = db.scalar(text(f"SELECT count(*) FROM {BENCH_SCHEMA}.chunks"))
+    if n != len(chunks):
+        raise RuntimeError(f"实验数据装载不完整：期望 {len(chunks)} 条，实际 {n} 条")
+
+
+def _drop_bench_schema(db) -> None:
+    db.execute(text("SET search_path TO public"))
+    db.execute(text(f"DROP SCHEMA IF EXISTS {BENCH_SCHEMA} CASCADE"))
+    db.commit()
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -107,6 +223,10 @@ def check_consistency(chunks: list[ChunkVec], queries: list[list[float]]) -> Con
     max_diff = 0.0
 
     with SessionLocal() as db:
+      try:
+        # 与 run_bench 同样装进隔离 schema：两侧必须面对**同一份**语料，
+        # 否则比的是「numpy 看到 2000 条」对「pgvector 看到 68 条」，校验形同虚设
+        _load_bench_schema(db, chunks)
         _set_hnsw(db, False)  # 强制顺序扫描，保证 pgvector 侧也是精确的
         pg_store = PgvectorStore()
         for q in queries:
@@ -122,6 +242,8 @@ def check_consistency(chunks: list[ChunkVec], queries: list[list[float]]) -> Con
                     print(f"  ✗ 结果不一致：")
                     print(f"      numpy : {[_key(x) for x in a][:5]}")
                     print(f"      pg-seq: {[_key(x) for x in b][:5]}")
+      finally:
+        _drop_bench_schema(db)
 
     return ConsistencyResult(
         queries=len(queries),
@@ -143,7 +265,8 @@ class BenchResult:
     p50_ms: float
     p95_ms: float
     recall_at_k: float
-    rss_mb: float
+    mem_mb: float           # numpy=常驻矩阵；pgvector=表+索引存储
+    scan: str = "-"          # PostgreSQL 实际选用的扫描方式（numpy 后端无此概念）
 
 
 def _latencies(search_fn, queries: list[list[float]]) -> tuple[list[float], list[list[tuple]]]:
@@ -182,26 +305,34 @@ def run_bench(chunks: list[ChunkVec], queries: list[list[float]]) -> list[BenchR
             p50_ms=round(statistics.median(lats), 3),
             p95_ms=round(sorted(lats)[int(len(lats) * 0.95) - 1], 3),
             recall_at_k=1.0,  # 自己就是 ground truth
-            rss_mb=round(_rss_mb(), 1),
+            mem_mb=_numpy_mem_mb(np_store),
+            scan="内存全扫",
         )
     )
 
     # ── pgvector 两种模式 ──────────────────────────────────────
+    # 实验语料装进独立 schema，跑完即删；public.chunks 全程只读不写
     with SessionLocal() as db:
-        pg_store = PgvectorStore()
-        for name, use_index in (("pg-seq", False), ("pg-hnsw", True)):
-            _set_hnsw(db, use_index)
-            lats, got = _latencies(lambda q: pg_store.search(db, q, TOP_K), queries)
-            results.append(
-                BenchResult(
-                    backend=name,
-                    n_chunks=len(chunks),
-                    p50_ms=round(statistics.median(lats), 3),
-                    p95_ms=round(sorted(lats)[int(len(lats) * 0.95) - 1], 3),
-                    recall_at_k=_recall(truth, got),
-                    rss_mb=round(_rss_mb(), 1),
+        try:
+            _load_bench_schema(db, chunks)
+            pg_store = PgvectorStore()
+            for name, use_index in (("pg-seq", False), ("pg-hnsw", True)):
+                _set_hnsw(db, use_index)
+                plan = _scan_kind(db, queries[0])
+                lats, got = _latencies(lambda q: pg_store.search(db, q, TOP_K), queries)
+                results.append(
+                    BenchResult(
+                        backend=name,
+                        n_chunks=len(chunks),
+                        p50_ms=round(statistics.median(lats), 3),
+                        p95_ms=round(sorted(lats)[int(len(lats) * 0.95) - 1], 3),
+                        recall_at_k=_recall(truth, got),
+                        mem_mb=_pg_size_mb(db),
+                        scan=plan,
+                    )
                 )
-            )
+        finally:
+            _drop_bench_schema(db)
     return results
 
 
@@ -275,10 +406,11 @@ def _main() -> int:
         print("── 对比实验 ──")
         rs = run_bench(chunks, queries)
         payload["对比结果"] = [asdict(x) for x in rs]
-        print(f"  {'后端':<10}{'块数':>8}{'P50(ms)':>10}{'P95(ms)':>10}{'Recall@'+str(TOP_K):>12}{'RSS(MB)':>10}")
+        print(f"  {'后端':<10}{'块数':>8}{'P50(ms)':>10}{'P95(ms)':>10}"
+              f"{'Recall@'+str(TOP_K):>12}{'内存/存储MB':>12}   实际扫描")
         for x in rs:
             print(f"  {x.backend:<10}{x.n_chunks:>8}{x.p50_ms:>10.3f}{x.p95_ms:>10.3f}"
-                  f"{x.recall_at_k:>12.4f}{x.rss_mb:>10.1f}")
+                  f"{x.recall_at_k:>12.4f}{x.mem_mb:>12.1f}   {x.scan}")
         print()
 
     out = OUT_DIR / f"bench_{len(chunks)}.json"
