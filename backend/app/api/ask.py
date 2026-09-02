@@ -110,6 +110,7 @@ def ask(body: AskRequest, request: Request, db: Session = Depends(get_db)) -> St
         tokens_prompt = 0
         tokens_output = 0
         error_msg: str | None = None
+        degraded = False  # 走了兜底话术，不能进缓存
         try:
             yield _sse("status", {"stage": "deciding"})
             # 用独立会话，避免请求会话在流式期间被关闭
@@ -169,6 +170,15 @@ def ask(body: AskRequest, request: Request, db: Session = Depends(get_db)) -> St
                         first_logged = True
                     answer_parts.append(delta)
                     yield _sse("delta", {"text": delta})
+
+                # 兜底：模型偶尔整段只吐工具调用标记，被 llm 层过滤后就什么都不剩。
+                # 与其给访客一片空白，不如明说一句 —— 空白会被当成系统坏了。
+                if not "".join(answer_parts).strip():
+                    degraded = True
+                    fallback = "抱歉，这次没能生成有效回答，请换个问法再试一次。"
+                    answer_parts.append(fallback)
+                    yield _sse("delta", {"text": fallback})
+
                 final_usage = usage[1] if len(usage) > 1 else llm.Usage()
                 tokens_prompt = result.tool_usage.prompt_tokens + final_usage.prompt_tokens
                 tokens_output = result.tool_usage.completion_tokens + final_usage.completion_tokens
@@ -183,7 +193,7 @@ def ask(body: AskRequest, request: Request, db: Session = Depends(get_db)) -> St
             yield _sse("error", {"message": "抱歉，服务暂时不可用，请稍后再试"})
         finally:
             # 写缓存（仅单轮 + 成功 + 有回答，T7-3）
-            if cache_key is not None and error_msg is None and answer_parts:
+            if cache_key is not None and error_msg is None and answer_parts and not degraded:
                 ask_cache.put(
                     cache_key,
                     {

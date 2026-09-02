@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 
@@ -105,6 +106,38 @@ def chat_with_tools(
     raise last if last else RuntimeError("LLM 调用失败")
 
 
+# 模型内部的工具调用标记。最终生成阶段不传 tools，但模型偶尔仍"想"继续调工具，
+# 于是把整套标记当成普通文本吐出来 —— 用户看到的是
+# `<｜｜DSML｜｜tool_calls><｜｜DSML｜｜invoke name="get_post_outline">…` 这样的乱码。
+# 注意标记里是**全角**竖线，不是 ASCII 的 |。
+#
+# ★ 必须**整块剔除**，包括标签之间的参数值。只删标签的话，
+#   参数值（文章 slug、章节名）会作为正文留下来，看着更像是回答，实际是垃圾。
+_TOOL_BLOCK = re.compile(
+    r"<\s*[｜|]*\s*DSML\s*[｜|]*\s*tool_calls\b.*?<\s*/\s*[｜|]*\s*DSML\s*[｜|]*\s*tool_calls\s*>"
+    r"|<\s*tool_calls\b.*?</\s*tool_calls\s*>"
+    r"|<\s*[｜|]*\s*DSML\s*[｜|]*\s*invoke\b.*?<\s*/\s*[｜|]*\s*DSML\s*[｜|]*\s*invoke\s*>"
+    r"|<\s*invoke\b.*?</\s*invoke\s*>",
+    re.S,
+)
+# 兜底：残留的单个标签（块被截断时可能只剩半边）
+_TOOL_TAG = re.compile(
+    r"<\s*/?\s*[｜|]*\s*DSML\s*[｜|]*[^>]*>"
+    r"|<\s*/?\s*(?:tool_calls|invoke|parameter)\b[^>]*>"
+)
+
+
+# 工具块的开头标记。流式时一旦出现，说明后面是工具调用而非正文，
+# 此时必须停止向外产出（闭合标签还在后面的 chunk 里）。
+_TOOL_OPEN = re.compile(
+    r"<\s*[｜|]*\s*DSML\s*[｜|]*\s*(?:tool_calls|invoke)\b|<\s*(?:tool_calls|invoke)\b"
+)
+
+
+def _strip_tool_markup(text: str) -> str:
+    return _TOOL_TAG.sub("", _TOOL_BLOCK.sub("", text))
+
+
 def stream_chat(
     messages: list[dict],
     *,
@@ -112,7 +145,16 @@ def stream_chat(
     max_tokens: int = 1024,
     usage_out: list[Usage] | None = None,
 ) -> Iterator[str]:
-    """流式对话，逐 token 产出文本；usage 追加到 usage_out（开启 include_usage）。"""
+    """流式对话，逐 token 产出文本；usage 追加到 usage_out（开启 include_usage）。
+
+    ★ 产出前剔除模型内部的工具调用标记（见 ``_TOOL_MARKUP``）。
+      最终生成阶段不传 tools，但模型偶尔仍"想"调工具，就把这套标记
+      当普通文本吐出来，用户看到的是一堆乱码。在最靠近输出的地方统一过滤，
+      比指望上游不产生更可靠。
+
+      标记可能被切分在相邻两个 chunk 里，因此保留一个小缓冲：
+      只产出确认不可能再构成标记的部分。
+    """
     last: Exception | None = None
     for model in _models():
         try:
@@ -120,12 +162,30 @@ def stream_chat(
                 model, messages, stream=True, temperature=temperature,
                 max_tokens=max_tokens, stream_options={"include_usage": True},
             )
+            buf = ""
+            suppressing = False   # 一旦发现工具块开头，就停止吐出、缓冲到流结束再统一过滤
             for chunk in stream:
                 if chunk.usage and usage_out is not None:
                     usage_out.append(_usage(chunk.usage))
                 delta = chunk.choices[0].delta if chunk.choices else None
-                if delta and delta.content:
-                    yield delta.content
+                if not (delta and delta.content):
+                    continue
+                buf += delta.content
+                if suppressing:
+                    continue
+                if _TOOL_OPEN.search(buf):
+                    # 工具块可能跨很多 chunk，闭合标签还没到；此时不能按「截断到最后一个 <」
+                    # 往外放，否则块前半截的参数值会漏成正文
+                    suppressing = True
+                    continue
+                # 末尾若有未闭合的 '<'，标记可能被切断，留到下一轮再判断
+                cut = buf.rfind("<")
+                out, buf = (buf, "") if cut == -1 else (buf[:cut], buf[cut:])
+                if out:
+                    yield out
+            tail = _strip_tool_markup(buf).strip()
+            if tail:
+                yield tail
             return
         except Exception as e:  # noqa: BLE001
             last = e

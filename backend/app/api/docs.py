@@ -51,18 +51,39 @@ def get_doc(doc_id: int, db: Session = Depends(get_db)) -> DocumentDetail:
     )
 
 
+# 原始文件的 MIME 类型。PDF 必须是 application/pdf，浏览器才会内联渲染；
+# 用 application/octet-stream 会被当成二进制流直接触发下载。
+_RAW_MEDIA_TYPE = {
+    "pdf": "application/pdf",
+    "markdown": "text/markdown; charset=utf-8",
+    "txt": "text/plain; charset=utf-8",
+}
+
+
 @router.get("/{doc_id}/raw")
-def get_doc_raw(doc_id: int, db: Session = Depends(get_db)) -> FileResponse:
+def get_doc_raw(
+    doc_id: int,
+    download: int = Query(0, description="1=作为附件下载；0=内联展示（默认）"),
+    db: Session = Depends(get_db),
+) -> FileResponse:
+    """原始文件。
+
+    两种用途共用一个端点，靠 ``download`` 区分：
+
+    - **内联展示**（默认）：PDF 原文视图用 iframe 嵌入浏览器内置阅读器，
+      必须返回 ``application/pdf`` 且**不带 filename**，否则会被
+      ``Content-Disposition: attachment`` 强制成下载，页面上什么都看不到。
+    - **下载**（``?download=1``）：带原始文件名（FR-VIEW-23），
+      FileResponse 会自动补 ``filename*`` 以正确处理中文名。
+    """
     doc = doc_service.get_document(db, doc_id)
     path = settings.uploads_dir / doc.stored_name
     if not path.is_file():
         raise ApiError(404, "not_found", "原始文件不存在")
-    # 下载时用原始文件名（FR-VIEW-21），带 filename* 以正确处理中文
-    return FileResponse(
-        path,
-        filename=doc.original_name,
-        media_type="application/octet-stream",
-    )
+    media_type = _RAW_MEDIA_TYPE.get(doc.file_format, "application/octet-stream")
+    if download:
+        return FileResponse(path, filename=doc.original_name, media_type=media_type)
+    return FileResponse(path, media_type=media_type)
 
 
 @router.post("", response_model=DocumentDetail, dependencies=[Depends(get_current_admin)])

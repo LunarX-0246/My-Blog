@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.errors import ApiError
-from app.models import Category, Tag, document_tags, post_tags
+from app.models import Category, Post, PostStatus, Tag, document_tags, post_tags
 from app.services.slug import slugify, unique_slug
 
 
@@ -22,8 +22,13 @@ def list_tags(db: Session) -> list[Tag]:
 
 def list_hot_tags(db: Session, limit: int = 10) -> list[tuple[Tag, int]]:
     """热门标签：按关联内容数量（文章 + 文档）降序（FR-HOME-03）。"""
-    post_counts = select(post_tags.c.tag_id, func.count().label("c")).group_by(
-        post_tags.c.tag_id
+    # ★ 只数已发布的文章。草稿对访客不可见，标签页也不会列出它，
+    #   若算进热度计数，首页标签上的数字就会大于点进去看到的条数。
+    post_counts = (
+        select(post_tags.c.tag_id, func.count().label("c"))
+        .join(Post, Post.id == post_tags.c.post_id)
+        .where(Post.status == PostStatus.published)
+        .group_by(post_tags.c.tag_id)
     )
     doc_counts = select(document_tags.c.tag_id, func.count().label("c")).group_by(
         document_tags.c.tag_id

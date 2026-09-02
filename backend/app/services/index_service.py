@@ -10,7 +10,7 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 
 from app.config import settings
 from app.db import SessionLocal
@@ -283,8 +283,56 @@ def index_source_sync(src_type: str, src_id: int) -> tuple[int, int]:
         search_service.invalidate()
 
 
+def count_orphan_chunks(db) -> int:
+    """统计孤儿块：源内容已不存在，块却还留在索引里。
+
+    正常路径（删除文章/文档、撤回为草稿）都会级联清块，理论上不该出现。
+    但一旦出现 —— 进程在删除中途崩溃、事务部分提交、直接改库 ——
+    后果是**检索会命中一段已经不存在的内容，AI 照常引用它**，
+    而访客点进去发现原文里根本没有。
+
+    整个过程不报任何错，只能靠主动检查发现，因此在索引管理页常驻展示。
+    """
+    post_orphans = (
+        select(func.count())
+        .select_from(Chunk)
+        .where(Chunk.src_type == SourceType.post, ~Chunk.src_id.in_(select(Post.id)))
+    )
+    doc_orphans = (
+        select(func.count())
+        .select_from(Chunk)
+        .where(Chunk.src_type == SourceType.document, ~Chunk.src_id.in_(select(Document.id)))
+    )
+    return int(db.scalar(post_orphans) or 0) + int(db.scalar(doc_orphans) or 0)
+
+
+def purge_orphan_chunks() -> int:
+    """清除孤儿块，返回清除数量。清完要让检索与问答缓存失效。"""
+    with SessionLocal() as db:
+        n = count_orphan_chunks(db)
+        if n:
+            db.execute(
+                delete(Chunk).where(
+                    Chunk.src_type == SourceType.post, ~Chunk.src_id.in_(select(Post.id))
+                )
+            )
+            db.execute(
+                delete(Chunk).where(
+                    Chunk.src_type == SourceType.document,
+                    ~Chunk.src_id.in_(select(Document.id)),
+                )
+            )
+            db.commit()
+            invalidate_bm25()
+            search_service.invalidate()
+            ask_cache.clear()
+        return n
+
+
 if __name__ == "__main__":
     import sys
 
     if "--rebuild" in sys.argv:
         print(f"全量重建完成，共 {_rebuild_sync()} 个内容")
+    elif "--purge-orphans" in sys.argv:
+        print(f"已清除 {purge_orphan_chunks()} 个孤儿块")

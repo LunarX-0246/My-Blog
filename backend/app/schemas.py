@@ -173,6 +173,12 @@ class AskRequest(BaseModel):
 
 
 class SettingsUpdate(BaseModel):
+    # extra="forbid"：字段名写错时直接 422，而不是被 Pydantic 静默丢掉。
+    # 两个字段都可选、都默认 None，少传一个是「不改这项」的正常语义 ——
+    # 这意味着传错名字的请求同样什么都不改，却照样返回 {"ok": true}，
+    # 管理页会显示「保存成功」而设置纹丝不动，排查起来毫无线索。
+    model_config = ConfigDict(extra="forbid")
+
     presets: list[str] | None = None
     limits: dict | None = None
 

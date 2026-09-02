@@ -163,6 +163,11 @@ def chunk_markdown(md_text: str, *, root_ctx: str, description: str = "") -> lis
         content = "\n".join(lines[start:end]).strip()
         prefix = prefix_root
         for _lvl, htext in chain:
+            # 文章的 h1 通常就是文章标题本身（导入脚本正是从 h1 取标题的），
+            # 直接拼会得到「标题 > 标题 > 小节」这种重复前缀 ——
+            # 既稀释 embedding 的语义，也白白多占 token。与根上下文同名则跳过。
+            if htext == root_ctx:
+                continue
             prefix = f"{prefix} > {htext}"
         # 锚点用当前标题的 slug（供引用跳转，RAG-CHUNK-07）；同名标题去重（L1，与前端一致）
         anchor = slugify_heading(text)

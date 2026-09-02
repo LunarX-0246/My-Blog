@@ -175,6 +175,12 @@ def get_by_id(db: Session, post_id: int) -> Post:
     return post
 
 
+# 保留 slug：这些文章承载固定页面的内容（FR-VIEW-24 把「关于」页做成一篇特殊文章），
+# 它们不是普通博文，不应出现在文章归档、首页最新、相关推荐里。
+# 管理端仍然照常列出，否则博主就找不到它、也没法编辑了。
+RESERVED_SLUGS = ("about",)
+
+
 def list_published(
     db: Session,
     category_slug: str | None = None,
@@ -184,12 +190,13 @@ def list_published(
     page_size: int = 20,
 ) -> tuple[list[Post], int]:
     count_stmt = select(func.count(func.distinct(Post.id))).where(
-        Post.status == PostStatus.published
+        Post.status == PostStatus.published,
+        Post.slug.not_in(RESERVED_SLUGS),
     )
     stmt = (
         select(Post)
         .options(selectinload(Post.category), selectinload(Post.tags))
-        .where(Post.status == PostStatus.published)
+        .where(Post.status == PostStatus.published, Post.slug.not_in(RESERVED_SLUGS))
     )
     if featured:
         count_stmt = count_stmt.where(Post.is_featured.is_(True))
@@ -309,7 +316,11 @@ def get_related(db: Session, post: Post, limit: int = 3) -> list[Post]:
         db.scalars(
             select(Post)
             .options(selectinload(Post.category), selectinload(Post.tags))
-            .where(Post.id.in_(post_ids[:limit]), Post.status == PostStatus.published)
+            .where(
+                Post.id.in_(post_ids[:limit]),
+                Post.status == PostStatus.published,
+                Post.slug.not_in(RESERVED_SLUGS),
+            )
         ).all()
     )
     order = {pid: i for i, pid in enumerate(post_ids[:limit])}
@@ -322,13 +333,21 @@ def get_neighbors(db: Session, post: Post) -> tuple[Post | None, Post | None]:
         return None, None
     prev_post = db.execute(
         select(Post)
-        .where(Post.status == PostStatus.published, Post.published_at < post.published_at)
+        .where(
+            Post.status == PostStatus.published,
+            Post.published_at < post.published_at,
+            Post.slug.not_in(RESERVED_SLUGS),
+        )
         .order_by(Post.published_at.desc())
         .limit(1)
     ).scalar_one_or_none()
     next_post = db.execute(
         select(Post)
-        .where(Post.status == PostStatus.published, Post.published_at > post.published_at)
+        .where(
+            Post.status == PostStatus.published,
+            Post.published_at > post.published_at,
+            Post.slug.not_in(RESERVED_SLUGS),
+        )
         .order_by(Post.published_at.asc())
         .limit(1)
     ).scalar_one_or_none()

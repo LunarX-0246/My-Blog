@@ -4,7 +4,7 @@
 """
 from __future__ import annotations
 
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
@@ -67,11 +67,20 @@ def index_status(db: Session = Depends(get_db)) -> dict:
             for d in docs
         ],
         "total_chunks": stats.total_chunks,
+        # 孤儿块：源内容已删除但块仍留在索引里。正常应为 0；不为 0 时
+        # 检索会命中已不存在的内容且不报任何错，只能靠这里主动暴露
+        "orphan_chunks": index_service.count_orphan_chunks(db),
         "model": settings.embedding_model,
         "dim": settings.embedding_dim,
         "embedding_tokens": embedding_tokens,
         "last_indexed_at": last,
     }
+
+
+@router.post("/index/purge-orphans")
+def purge_orphans() -> dict[str, int]:
+    """清除孤儿块（源内容已删除、却残留在索引中的块）。"""
+    return {"purged": index_service.purge_orphan_chunks()}
 
 
 @router.post("/index/retry/{src_type}/{src_id}")
@@ -125,8 +134,14 @@ def list_qa_logs(
     page_size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
 ) -> QaLogListResponse:
-    df = datetime.combine(date_from, time.min).replace(tzinfo=timezone.utc) if date_from else None
-    dt = datetime.combine(date_to, time.max).replace(tzinfo=timezone.utc) if date_to else None
+    # ★ 按**本机时区**切日界，不能按 UTC。
+    #   created_at 存的是 UTC，而博主在管理页选的是自己日历上的日期。
+    #   若把这个日期当成 UTC 日（replace(tzinfo=utc)），东八区下选「今天」会漏掉
+    #   本地当天 00:00–08:00 的全部记录 —— 早上刚问过的几条筛不出来，
+    #   而界面上不会有任何提示，只会显示「暂无数据」。
+    #   astimezone() 作用在 naive datetime 上时，正是按本机时区解释再补上偏移。
+    df = datetime.combine(date_from, time.min).astimezone() if date_from else None
+    dt = datetime.combine(date_to, time.max).astimezone() if date_to else None
     items, total = qa_log_service.list_logs(
         db,
         used_retrieval=used_retrieval,

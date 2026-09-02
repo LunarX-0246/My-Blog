@@ -21,6 +21,18 @@ async def upload_image(
     return await image_service.save_image(db, file)
 
 
+# 图片响应的安全头（NFR-SEC-03）。
+# SVG 是 XML，可以内嵌 <script>；浏览器直接打开 /api/images/x.svg 时，
+# 脚本会在**本站同源**下执行，能读到管理端的会话 Cookie。
+# 虽然只有博主能上传，但一张从别处复制来的 SVG 就足以中招，所以在出口处封死：
+#   - sandbox：把响应放进无源沙箱，脚本被禁用
+#   - nosniff：禁止浏览器把 png/jpg 猜成别的类型
+_IMG_HEADERS = {
+    "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+    "X-Content-Type-Options": "nosniff",
+}
+
+
 @router.get("/{stored_name}")
 def get_image(stored_name: str) -> FileResponse:
     # 防御路径穿越：只允许纯文件名
@@ -29,4 +41,4 @@ def get_image(stored_name: str) -> FileResponse:
     path = settings.images_dir / stored_name
     if not path.is_file():
         raise ApiError(404, "not_found", "图片不存在")
-    return FileResponse(path)
+    return FileResponse(path, headers=_IMG_HEADERS)
