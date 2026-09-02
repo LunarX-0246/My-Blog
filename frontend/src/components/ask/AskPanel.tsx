@@ -12,6 +12,8 @@ interface Message {
   sources: AskSource[];
   usedRetrieval: boolean | null;
   metadataTools: string[];
+  /** 本次回答来自缓存，未产生模型调用（FR-ASK-24） */
+  cached?: boolean;
 }
 
 const STORAGE_KEY = "blog_ask_history";
@@ -157,6 +159,9 @@ export default function AskPanel({
               metadataTools: d.metadata_tools ?? [],
             })),
           onDelta: (t) => patchAssistant((m) => ({ ...m, content: m.content + t })),
+          // 缓存命中时答案整段返回（FR-ASK-11 的例外），须在界面上标注出来，
+          // 让访客知道这不是刚生成的（FR-ASK-24）
+          onDone: (d) => patchAssistant((m) => ({ ...m, cached: d.cached === true })),
           onError: (msg) =>
             patchAssistant((m) => ({ ...m, content: m.content || msg, usedRetrieval: false })),
         },
@@ -226,6 +231,8 @@ export default function AskPanel({
                     !m.usedRetrieval && m.metadataTools.length === 0 && m.usedRetrieval === false
                       ? "本次未检索知识库"
                       : "",
+                    // 缓存命中时答案整段返回而非逐字生成，标注出来让访客知情（FR-ASK-24）
+                    m.cached ? "缓存结果" : "",
                   ]
                     .filter(Boolean)
                     .join(" · ")}

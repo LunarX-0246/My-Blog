@@ -8,11 +8,18 @@ export interface SourcesEvent {
   metadata_tools?: string[];
 }
 
+/** done 事件。cached 为真表示本次是缓存命中，未产生模型调用（FR-ASK-23/24）。 */
+export interface DoneEvent {
+  latency_ms: number;
+  tokens?: { prompt: number; output: number };
+  cached?: boolean;
+}
+
 export interface AskHandlers {
   onStatus?: (stage: string) => void;
   onSources?: (data: SourcesEvent) => void;
   onDelta?: (text: string) => void;
-  onDone?: (data: { latency_ms: number }) => void;
+  onDone?: (data: DoneEvent) => void;
   onError?: (message: string) => void;
 }
 
@@ -60,7 +67,7 @@ export async function streamAsk(
       if (event === "status") handlers.onStatus?.(String(parsed.stage ?? ""));
       else if (event === "sources") handlers.onSources?.(parsed as unknown as SourcesEvent);
       else if (event === "delta") handlers.onDelta?.(String(parsed.text ?? ""));
-      else if (event === "done") handlers.onDone?.(parsed as unknown as { latency_ms: number });
+      else if (event === "done") handlers.onDone?.(parsed as unknown as DoneEvent);
       else if (event === "error") handlers.onError?.(String(parsed.message ?? ""));
     }
   }
