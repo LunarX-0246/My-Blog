@@ -1,0 +1,10 @@
+# 对比实验专用依赖。
+#
+# 刻意与 backend/requirements.txt 分开：这些包只在本机跑实验时需要，
+# 不应进入生产 Docker 镜像（目标服务器只有 1.6 GiB 内存 / 40 GB 磁盘，
+# 镜像里每多一个用不上的包都是浪费）。
+#
+# 安装：pip install -r experiments/requirements.txt
+
+# 采集进程常驻内存（RSS），对应 T9-2 的内存指标
+psutil>=5.9

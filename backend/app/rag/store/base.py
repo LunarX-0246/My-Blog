@@ -75,14 +75,26 @@ class VectorStore(ABC):
     def stats(self, db: Session) -> StoreStats: ...
 
 
+_numpy_store: VectorStore | None = None
+
+
 def get_store() -> VectorStore:
-    """按 VECTOR_BACKEND 配置返回对应后端。"""
+    """按 VECTOR_BACKEND 配置返回对应后端。
+
+    ★ numpy 后端必须复用同一实例：向量常驻实例内存，每次 new 都要重新读盘
+      反序列化；更要命的是不同实例之间的 upsert 互相看不见，会出现
+      「刚写进去的块检索不到」这种极难定位的问题。
+      pgvector 后端无状态（数据都在库里），每次新建无妨。
+    """
+    global _numpy_store
     from app.config import settings
 
     if settings.vector_backend == "numpy":
-        from app.rag.store.numpy_store import NumpyStore
+        if _numpy_store is None:
+            from app.rag.store.numpy_store import NumpyStore
 
-        return NumpyStore()
+            _numpy_store = NumpyStore()
+        return _numpy_store
     from app.rag.store.pgvector_store import PgvectorStore
 
     return PgvectorStore()
