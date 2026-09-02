@@ -82,11 +82,15 @@ services:
     image: nginx:alpine
     container_name: blog-nginx
     restart: always
+    # 配置文件与对外端口由 .env 控制，便于在「备案前过渡」与「正式上线」之间切换：
+    #   过渡期（未备案）NGINX_CONF=nginx.http.conf  HTTP_PORT=8080
+    #   正式上线（已备案）NGINX_CONF=nginx.conf      HTTP_PORT=80
+    # 大陆地域服务器未备案时不得通过 80 端口对外提供网站服务，故过渡期用高位端口。
     ports:
-      - "80:80"
-      - "443:443"
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/${NGINX_CONF:-nginx.conf}:/etc/nginx/nginx.conf:ro
       - /etc/letsencrypt:/etc/letsencrypt:ro
     depends_on:
       - api
