@@ -1,8 +1,9 @@
 import DualView from "@/components/doc/DualView";
 import PdfViewer from "@/components/doc/PdfViewer";
 import { Markdown } from "@/components/post/Markdown";
+import { stripLeadingTitle } from "@/lib/heading";
 import TagList from "@/components/post/TagList";
-import { serverFetch } from "@/lib/server-api";
+import { serverFetch, serverFetchOr404 } from "@/lib/server-api";
 import type { DocumentDetail } from "@/lib/types";
 
 function formatSize(bytes: number): string {
@@ -22,13 +23,13 @@ export default async function DocDetailPage({
   const { id } = await params;
   const { page } = await searchParams;
   const initialPage = page ? Number(page) : undefined;
-  const doc = await serverFetch<DocumentDetail>(`/api/docs/${id}`);
+  const doc = await serverFetchOr404<DocumentDetail>(`/api/docs/${id}`);
 
   const original =
     doc.file_format === "pdf" ? (
       <PdfViewer url={`/api/docs/${doc.id}/raw`} initialPage={initialPage} />
     ) : doc.file_format === "markdown" ? (
-      <Markdown content={doc.parsed_text} />
+      <Markdown content={stripLeadingTitle(doc.parsed_text, doc.title)} />
     ) : (
       <pre className="whitespace-pre-wrap text-sm text-foreground">{doc.parsed_text}</pre>
     );
@@ -67,9 +68,10 @@ export default async function DocDetailPage({
             <span>上传于 {new Date(doc.uploaded_at).toLocaleDateString("zh-CN")}</span>
           </div>
           <TagList tags={doc.tags} />
+          {/* ?download=1 让后端带上 Content-Disposition: attachment 与原始文件名。
+              不加的话 PDF 会被浏览器内联打开而不是下载（FR-VIEW-23）。 */}
           <a
-            href={`/api/docs/${doc.id}/raw`}
-            download={doc.original_name}
+            href={`/api/docs/${doc.id}/raw?download=1`}
             className="inline-block text-sm text-accent hover:opacity-80"
           >
             下载原文件

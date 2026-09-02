@@ -15,6 +15,8 @@ interface IndexStatus {
   posts: IndexItem[];
   documents: IndexItem[];
   total_chunks: number;
+  /** 源内容已删除但残留在索引里的块。正常为 0；不为 0 时检索会命中已不存在的内容 */
+  orphan_chunks: number;
   model: string;
   dim: number;
   embedding_tokens: number;
@@ -79,6 +81,21 @@ export default function AdminIndexPage() {
     }
   }
 
+  async function purgeOrphans() {
+    setBusy(true);
+    try {
+      const r = await clientFetch<{ purged: number }>("/api/admin/index/purge-orphans", {
+        method: "POST",
+      });
+      setError(r.purged > 0 ? `已清除 ${r.purged} 个孤儿块` : null);
+      setTimeout(load, 800);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "清理失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function renderItem(item: IndexItem, srcType: "post" | "document") {
     if (filter !== "all" && item.idx_status !== filter) return null;
     return (
@@ -125,6 +142,18 @@ export default function AdminIndexPage() {
         {data && (
           <div className="flex flex-wrap gap-x-6 gap-y-1 rounded-lg border border-border p-4 text-sm text-muted">
             <span>块总数：<b className="text-foreground">{data.total_chunks}</b></span>
+            {data.orphan_chunks > 0 && (
+              <span className="text-red-400">
+                孤儿块：<b>{data.orphan_chunks}</b>
+                <button
+                  onClick={purgeOrphans}
+                  disabled={busy}
+                  className="ml-2 rounded border border-red-400/40 px-2 py-0.5 text-xs hover:bg-red-400/10 disabled:opacity-50"
+                >
+                  清理
+                </button>
+              </span>
+            )}
             <span>向量模型：<b className="text-foreground">{data.model}</b>（{data.dim} 维）</span>
             <span>累计 embedding token：<b className="text-foreground">{data.embedding_tokens}</b></span>
             {data.last_indexed_at && (

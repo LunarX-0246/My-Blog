@@ -9,8 +9,6 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@react-pdf-viewer/core": "^3.12.0",
-    "@react-pdf-viewer/default-layout": "^3.12.0",
     "@uiw/react-md-editor": "^4.1.2",
     "next": "15.5.24",
     "react": "19.1.0",

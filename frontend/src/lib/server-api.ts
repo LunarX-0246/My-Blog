@@ -7,8 +7,9 @@
 // 只在 Server Component / layout 里 import 本文件。
 
 import { cookies } from "next/headers";
+import { notFound } from "next/navigation";
 
-import { parseResponse } from "./api";
+import { ApiError, parseResponse } from "./api";
 
 // 本机开发默认指向本机后端；生产由 docker-compose 注入容器内网地址 http://api:8000。
 const INTERNAL_API_BASE =
@@ -32,4 +33,24 @@ export async function serverFetch<T>(path: string, init?: RequestInit): Promise<
     cache: "no-store",
   });
   return parseResponse<T>(res);
+}
+
+/**
+ * 取详情数据：内容不存在时渲染 404 页，而不是抛异常变成 500。
+ *
+ * 后端对不存在的 id / slug 已经正确返回 404（路径参数类型不对则是 422），
+ * 但这些在 serverFetch 里是一个抛出的 ApiError，Server Component 里没人接，
+ * 结果就是访客拿到一个「服务器内部错误」——明明只是链接失效或手输错了地址。
+ * 搜索引擎也会因此把失效链接当成 5xx 而不是从索引里剔除。
+ */
+export async function serverFetchOr404<T>(path: string, init?: RequestInit): Promise<T> {
+  try {
+    return await serverFetch<T>(path, init);
+  } catch (e) {
+    const status = (e as ApiError)?.status;
+    if (status === 404 || status === 422) {
+      notFound();
+    }
+    throw e; // 其余错误（后端挂了、网络断了）仍然按错误处理，不要伪装成 404
+  }
 }

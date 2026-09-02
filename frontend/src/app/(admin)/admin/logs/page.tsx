@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { clientFetch } from "@/lib/api";
-import type { QaLogListResponse, QaLogOut, QaLogStats } from "@/lib/types";
+import type { QaLogListResponse, QaLogStats } from "@/lib/types";
 
 /** 问答日志（FR-LOG-01~05）：时间倒序、可展开、筛选、汇总统计。 */
 export default function AdminLogsPage() {

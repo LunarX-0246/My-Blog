@@ -2,14 +2,15 @@ import Link from "next/link";
 
 import AskPanel from "@/components/ask/AskPanel";
 import { serverFetch } from "@/lib/server-api";
-import type { PostListResponse, TagWithCount } from "@/lib/types";
+import type { DocumentOut, PostListResponse, TagWithCount } from "@/lib/types";
 
 /** 首页（FR-HOME-01~05）：主视觉 → 精选 → AI 问答 → 最新 → 热门标签 → 知识库入口。 */
 export default async function HomePage() {
-  const [featured, latest, hotTags] = await Promise.all([
+  const [featured, latest, hotTags, docs] = await Promise.all([
     serverFetch<PostListResponse>("/api/posts?featured=true&page_size=3"),
     serverFetch<PostListResponse>("/api/posts?page_size=5"),
     serverFetch<TagWithCount[]>("/api/tags/hot?limit=10"),
+    serverFetch<DocumentOut[]>("/api/docs"),
   ]);
 
   return (
@@ -104,14 +105,29 @@ export default async function HomePage() {
         </section>
       )}
 
-      {/* 知识库入口（占位，stage 2 补全） */}
+      {/* 知识库入口（FR-HOME-05） */}
       <section className="px-6 py-12">
-        <div className="mx-auto max-w-4xl rounded-lg border border-border p-6">
-          <h2 className="text-lg font-semibold">知识库</h2>
+        <Link
+          href="/docs"
+          className="mx-auto block max-w-4xl rounded-lg border border-border p-6 transition-colors hover:border-accent"
+        >
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold">知识库</h2>
+            <span className="text-sm text-accent">按目录浏览 →</span>
+          </div>
           <p className="mt-2 text-sm text-muted">
-            站内收录的资料文档，支持原文 / 文本双视图。知识库将在后续阶段上线。
+            站内收录的资料文档，支持原文 / 文本双视图，可直接跳到被引用的那一页、那一段。
           </p>
-        </div>
+          {docs.length > 0 && (
+            <p className="mt-3 text-xs text-faint">
+              共 {docs.length} 份资料 · 最近收录：
+              {docs
+                .slice(0, 3)
+                .map((d) => d.title)
+                .join(" / ")}
+            </p>
+          )}
+        </Link>
       </section>
     </main>
   );

@@ -12,6 +12,16 @@ const compat = new FlatCompat({
 const eslintConfig = [
   ...compat.extends("next/core-web-vitals", "next/typescript"),
   {
+    rules: {
+      // 下划线开头 = 有意丢弃的变量（如从 props 里解构掉不需要的 node），
+      // 不该被当成「忘了用」来报
+      "@typescript-eslint/no-unused-vars": [
+        "warn",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_" },
+      ],
+    },
+  },
+  {
     ignores: [
       "node_modules/**",
       ".next/**",

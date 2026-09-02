@@ -1,10 +1,11 @@
 import Link from "next/link";
 
 import { Markdown } from "@/components/post/Markdown";
+import { stripLeadingTitle, stripLeadingTitleToc } from "@/lib/heading";
 import PrevNext from "@/components/post/PrevNext";
 import TagList from "@/components/post/TagList";
 import Toc from "@/components/post/Toc";
-import { serverFetch } from "@/lib/server-api";
+import { serverFetch, serverFetchOr404 } from "@/lib/server-api";
 import type { NeighborsResponse, PostDetail, PostListItem } from "@/lib/types";
 
 /** 文章详情页（FR-VIEW-08~12）。 */
@@ -14,8 +15,11 @@ export default async function PostDetailPage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const [post, neighbors, related] = await Promise.all([
-    serverFetch<PostDetail>(`/api/posts/${slug}`),
+  // 先确认文章存在再取上下篇 / 相关推荐。
+  // 三个并行发的话，slug 无效时后两个也会 404 并抛出，Promise.all 只上报第一个，
+  // 剩下的成了无人接管的 rejection，日志里全是噪声。
+  const post = await serverFetchOr404<PostDetail>(`/api/posts/${slug}`);
+  const [neighbors, related] = await Promise.all([
     serverFetch<NeighborsResponse>(`/api/posts/${slug}/neighbors`),
     serverFetch<PostListItem[]>(`/api/posts/${slug}/related`),
   ]);
@@ -54,11 +58,11 @@ export default async function PostDetailPage({
 
         <div className="flex gap-8">
           <article className="min-w-0 flex-1">
-            <Markdown content={post.content_md} />
+            <Markdown content={stripLeadingTitle(post.content_md, post.title)} />
           </article>
           <aside className="hidden w-56 shrink-0 lg:block">
             <div className="sticky top-8 max-h-[calc(100vh-4rem)] overflow-y-auto">
-              <Toc items={post.toc} />
+              <Toc items={stripLeadingTitleToc(post.toc, post.title)} />
             </div>
           </aside>
         </div>

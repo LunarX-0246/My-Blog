@@ -16,20 +16,24 @@ export default async function DocsPage() {
           <DirTree node={tree} />
         </aside>
         <div className="min-w-0 flex-1 border-border md:border-l md:pl-8">
-          <h2 className="mb-4 text-sm text-faint">根目录文档</h2>
+          {/* 根目录下没有文档时不摆这个标题 —— 底下跟着的是「去左边选」的提示，
+              顶着「根目录文档」的抬头会让人以为是根目录里的东西没加载出来 */}
           {tree.documents.length === 0 ? (
             <p className="text-sm text-muted">从左侧目录树选择文档查看。</p>
           ) : (
-            <ul className="space-y-2">
-              {tree.documents.map((d) => (
-                <li key={d.id}>
-                  <Link href={`/docs/${d.id}`} className="text-foreground hover:text-accent">
-                    {d.title}
-                  </Link>
-                  <p className="text-xs text-faint">{d.description}</p>
-                </li>
-              ))}
-            </ul>
+            <>
+              <h2 className="mb-4 text-sm text-faint">根目录文档</h2>
+              <ul className="space-y-2">
+                {tree.documents.map((d) => (
+                  <li key={d.id}>
+                    <Link href={`/docs/${d.id}`} className="text-foreground hover:text-accent">
+                      {d.title}
+                    </Link>
+                    <p className="text-xs text-faint">{d.description}</p>
+                  </li>
+                ))}
+              </ul>
+            </>
           )}
         </div>
       </div>

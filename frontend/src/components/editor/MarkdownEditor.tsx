@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import MDEditor from "@uiw/react-md-editor";
 import "@uiw/react-md-editor/markdown-editor.css";
 import "@uiw/react-markdown-preview/markdown.css";
@@ -30,18 +30,34 @@ export default function MarkdownEditor({
     return body.url as string;
   }
 
+  // ★ 正文的最新值。图片上传是异步的，插入结果必须基于**上传完成那一刻**的正文，
+  //   不能用发起粘贴时闭包里捕获的那份快照 —— 上传一张图要几百毫秒到几秒，
+  //   这期间用户还在打字，拿旧快照去拼接会把这段新输入整段覆盖掉，
+  //   表现为「插入图片后，刚才敲的字凭空消失」，而且不报任何错。
+  const valueRef = useRef(value);
+  useEffect(() => {
+    valueRef.current = value;
+  }, [value]);
+
   // 上传一组图片，并在光标处插入 Markdown 图片语法（FR-POST-05）。
   // 光标位置取自 textarea 的 selectionStart；CodeMirror 会同步该值。
-  async function insertImages(textarea: HTMLTextAreaElement, files: File[]) {
-    const pos = textarea.selectionStart ?? value.length;
-    const marks: string[] = [];
-    for (const f of files) {
-      const url = await uploadImage(f);
-      marks.push(`![${f.name.replace(/[[\]()]/g, "")}](${url})`);
-    }
-    const snippet = marks.join("\n") + "\n";
-    onChange(value.slice(0, pos) + snippet + value.slice(pos));
-  }
+  const insertImages = useCallback(
+    async (textarea: HTMLTextAreaElement, files: File[]) => {
+      const pos = textarea.selectionStart ?? valueRef.current.length;
+      const marks: string[] = [];
+      for (const f of files) {
+        const url = await uploadImage(f);
+        marks.push(`![${f.name.replace(/[[\]()]/g, "")}](${url})`);
+      }
+      const snippet = marks.join("\n") + "\n";
+      // 用最新正文重新拼接；光标位置也夹到新长度内 ——
+      // 用户在上传期间删过字的话，pos 会越界
+      const latest = valueRef.current;
+      const at = Math.min(pos, latest.length);
+      onChange(latest.slice(0, at) + snippet + latest.slice(at));
+    },
+    [onChange],
+  );
 
   const handlePaste = useCallback(
     (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
@@ -56,7 +72,7 @@ export default function MarkdownEditor({
       e.preventDefault();
       void insertImages(e.currentTarget, files);
     },
-    [value],
+    [insertImages],
   );
 
   const handleDrop = useCallback(
@@ -68,7 +84,7 @@ export default function MarkdownEditor({
       e.preventDefault();
       void insertImages(e.currentTarget, files);
     },
-    [value],
+    [insertImages],
   );
 
   return (
