@@ -3,7 +3,7 @@ import PdfViewer from "@/components/doc/PdfViewer";
 import { Markdown } from "@/components/post/Markdown";
 import { stripLeadingTitle } from "@/lib/heading";
 import TagList from "@/components/post/TagList";
-import { serverFetch, serverFetchOr404 } from "@/lib/server-api";
+import { serverFetchOr404 } from "@/lib/server-api";
 import type { DocumentDetail } from "@/lib/types";
 
 function formatSize(bytes: number): string {
