@@ -8,6 +8,15 @@
   方便排查「为什么这个块召回不对」。
 - ``documents.dir_path`` 是逻辑路径字符串，不是物理目录。
 - ``documents.stored_name`` 是系统生成的唯一名，原始文件名仅作记录与下载用。
+
+★ 索引必须在这里用 ``__table_args__`` 声明，不能只写在迁移脚本里。
+  Alembic 的 autogenerate 是拿**本文件的 metadata** 去和数据库对账的：
+  库里有、模型没声明的索引，会被判定为「多余」，生成 ``op.drop_index``。
+  也就是说，只要有人跑一次 ``alembic revision --autogenerate``，
+  这些索引就会被顺手删掉 —— 其中包括 ``chunks_embedding_idx``（HNSW 向量索引）。
+  删掉不会报任何错，检索只是悄悄退化成全表顺序扫描，
+  到了万级块才会表现为「怎么突然这么慢」，那时已经很难联想到是一次迁移干的。
+  改动索引时，**模型与迁移两处必须同步改**。
 """
 from __future__ import annotations
 
@@ -23,6 +32,7 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Index,
     Integer,
     String,
     Table,
@@ -115,6 +125,10 @@ class Tag(Base):
 
 class Post(Base):
     __tablename__ = "posts"
+    __table_args__ = (
+        # 公开列表恒定按「已发布 + 发布时间倒序」取，走这一条复合索引
+        Index("posts_status_pub_idx", "status", text("published_at DESC")),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -158,6 +172,10 @@ class Post(Base):
 
 class Document(Base):
     __tablename__ = "documents"
+    __table_args__ = (
+        # 知识库按目录树浏览，以及检索时按 dir_prefix 限定范围
+        Index("documents_dir_idx", "dir_path"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     original_name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -194,6 +212,18 @@ class Chunk(Base):
     __tablename__ = "chunks"
     __table_args__ = (
         UniqueConstraint("src_type", "src_id", "seq", name="uq_chunks_src_seq"),
+        # 按来源取 / 删某篇内容的全部块
+        Index("chunks_src_idx", "src_type", "src_id"),
+        # 增量索引靠指纹比对，每次保存都要按 fingerprint 查一遍
+        Index("chunks_fp_idx", "fingerprint"),
+        # HNSW 向量索引：近似最近邻，检索的主路径。
+        # 小数据量下 PG 可能仍选顺序扫描，属正常（见技术方案 §12 与对比实验）
+        Index(
+            "chunks_embedding_idx",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+        ),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -229,6 +259,10 @@ class Image(Base):
 
 class IndexTask(Base):
     __tablename__ = "index_tasks"
+    __table_args__ = (
+        # 启动时捞未完成任务、管理页按状态筛选，都走这一条
+        Index("index_tasks_status_idx", "status", "created_at"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     src_type: Mapped[SourceType] = mapped_column(source_type_enum, nullable=False)
